@@ -209,6 +209,51 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(run!.findingsCount).toBe(1);
     expect(run!.grounding).toBe('1/2 passed');
 
+    // cost propagates: mock LLM returns costUsd per call → agent_runs, trace
+    // stats, and the timeline RunSummary all carry the same non-null value.
+    expect(run!.costUsd).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBe(run!.costUsd);
+    const timeline = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(timeline[0].cost_usd).toBe(run!.costUsd);
+
+    await app.close();
+  });
+
+  it('PR list aggregates cost: SUM of non-null run costs, null when no run has cost', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    // PR A: two priced runs + one failed (null cost); PR B: only a null-cost run.
+    const { repo, pr: prA } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const [prB] = await pg.handle.db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId,
+        repoId: repo.id,
+        number: 483,
+        title: 'No-cost PR',
+        author: 'deepak.r',
+        branch: 'chore/x',
+        base: 'main',
+        headSha: 'e5f6a7b8',
+        additions: 1,
+        deletions: 0,
+        filesCount: 1,
+        status: 'needs_review',
+      })
+      .returning();
+    await pg.handle.db.insert(t.agentRuns).values([
+      { workspaceId, prId: prA.id, status: 'done', costUsd: 0.01 },
+      { workspaceId, prId: prA.id, status: 'done', costUsd: 0.004 },
+      { workspaceId, prId: prA.id, status: 'failed', costUsd: null },
+      { workspaceId, prId: prB!.id, status: 'failed', costUsd: null },
+    ]);
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const a = pulls.find((p: { number: number }) => p.number === prA.number);
+    const b = pulls.find((p: { number: number }) => p.number === prB!.number);
+    expect(a.cost_usd).toBeCloseTo(0.014, 10);
+    // never $0.00 from missing data — all-null sums stay null
+    expect(b.cost_usd).toBeNull();
+
     await app.close();
   });
 
