@@ -1,0 +1,53 @@
+{
+  "skill_name": "frontend-ui-architecture",
+  "evals": [
+    {
+      "id": 0,
+      "name": "new-feature-placement",
+      "prompt": "In the dev-digest repo (client/ is the Next.js app), I want to add a severity filter bar to the PR list page at /repos/[repoId]/pulls — chips for CRITICAL / WARNING / SUGGESTION that filter the visible pull requests, with the active filter kept in the URL. Don't write the whole feature, just tell me exactly which files you'd create or touch and what goes in each one, with real paths.",
+      "expected_output": "A file plan that colocates the new component under src/app/repos/[repoId]/pulls/_components/<Name>/ as a folder with the component + index.ts (+ styles.ts/constants.ts as needed), reuses the existing src/lib/severity.ts helpers and SEV tokens from src/vendor/ui/primitives/tokens.ts rather than redefining a colour map, keeps data access in src/lib/hooks, and routes user-facing strings through next-intl messages.",
+      "assertions": [
+        "Puts the component in a named folder, not a loose file — either colocated under src/app/repos/[repoId]/pulls/_components/ or, if it justifies promotion because a second route already uses one, in src/components/",
+        "Gives the component folder an index.ts as its public API",
+        "Reuses the existing severity helpers in client/src/lib/severity.ts instead of redefining the severity list or ordering",
+        "Uses the SEV token map from src/vendor/ui/primitives/tokens.ts for chip colours instead of introducing a new hardcoded colour map",
+        "Does not propose a global src/utils/ or src/constants/ folder",
+        "Keeps data access in src/lib/hooks and does not put fetch inside the component",
+        "Routes the user-facing chip labels through next-intl messages rather than hardcoding English strings",
+        "Follows the repo styling convention (a colocated styles.ts with style objects) rather than Tailwind utility classes"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "extract-scattered-logic",
+      "prompt": "The run-cost calculation in our Next.js client has spread out — there's token math inline in a couple of components, some of it duplicated. I want to clean it up. Where should this logic actually live, and how do you decide what becomes a plain function vs a hook? Give me a concrete plan for client/.",
+      "expected_output": "Extraction into a named domain module (recognizing client/src/lib/cost.ts already exists) as pure functions rather than a utils.ts, with the explicit rule that a function calling no hooks must not be named use*, a thin hook only if React state/query access is needed, and colocated unit tests.",
+      "assertions": [
+        "Identifies that client/src/lib/cost.ts already exists and extends that named domain module rather than creating a new home",
+        "Does not propose a generic utils.ts, helpers.ts, or a shared utils/ folder as the destination",
+        "States the rule that a function which calls no hooks must be a plain function and must not be named use*",
+        "Recommends the token math itself be pure functions, testable without rendering",
+        "Proposes a hook only where React state, context or the query cache is actually needed, and keeps it thin",
+        "Mentions colocated unit tests (client/src/lib/cost.test.ts already exists)",
+        "Explains the decision criterion rather than only listing files"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "constants-placement",
+      "prompt": "quick one — i've got a list of supported model ids plus a map from model id to a display label and a colour, and the api base url. where do i put all of this in the client app? right now some of it is just sitting at the top of the component file",
+      "expected_output": "Splits by what governs the value: the model list and label/colour map are domain constants that colocate with the feature that owns them (noting src/lib/model-label.ts and feature-models.ts already exist, and MODEL_COLOR lives in AgentCard/constants.ts), while the API base URL is deployment config sourced from NEXT_PUBLIC_API_BASE via src/lib/api.ts. Should reject a global src/constants/ folder.",
+      "assertions": [
+        "Separates the answer by what governs each value rather than filing everything as constants together",
+        "Treats the API base URL as deployment config from NEXT_PUBLIC_API_BASE via client/src/lib/api.ts, not as a hardcoded constant",
+        "Treats the model list and label/colour map as domain constants that colocate with the feature that owns them",
+        "References the existing modules (client/src/lib/model-label.ts, feature-models.ts, or AgentCard/constants.ts) instead of inventing a new location",
+        "Explicitly rejects or avoids proposing a global src/constants/ folder",
+        "Notes that a colour map should have a single source rather than a second hardcoded copy"
+      ],
+      "files": []
+    }
+  ]
+}

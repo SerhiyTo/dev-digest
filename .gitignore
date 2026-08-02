@@ -23,3 +23,6 @@ test-results/
 
 # emdash worktree config (local)
 .emdash.json
+
+# skill eval run artifacts (outputs, gradings, benchmarks)
+.claude/skills/*-workspace/
