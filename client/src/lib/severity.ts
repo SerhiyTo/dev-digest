@@ -34,6 +34,15 @@ export function isEmptyCounts(counts: SeverityCounts): boolean {
   return SEVERITIES.every((sev) => counts[sev] === 0);
 }
 
+export function severityRank(severity: string): number {
+  const i = (SEVERITIES as readonly string[]).indexOf(severity);
+  return i === -1 ? SEVERITIES.length : i;
+}
+
+export function sortBySeverity(findings: FindingRecord[]): FindingRecord[] {
+  return [...findings].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+}
+
 export function hasFindingAtSeverity(
   findings: FindingRecord[],
   severity: Severity | null,

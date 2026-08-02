@@ -69,6 +69,7 @@ export default function PRDetailPage() {
   const setTab = (t: string) => setParam("tab", t);
   const severity = parseSeverity(search.get("severity"));
   const setSeverity = (sev: string | null) => setParam("severity", sev);
+  const targetFindingId = search.get("finding");
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -149,6 +150,7 @@ export default function PRDetailPage() {
             lethalTrifecta={lethalTrifecta}
             runs={runs}
             severity={severity}
+            targetFindingId={targetFindingId}
             severityCounts={severityCounts}
             runSeverityCounts={runSeverityCounts}
             onSeverity={setSeverity}

@@ -115,7 +115,14 @@
     "emptyStatusBody": "No PRs with status “{status}”.",
     "severityFilterActive": "Findings: {severity}",
     "severityFilterClear": "Clear the {severity} findings filter",
-    "emptySeverityBody": "No PRs with active {severity} findings."
+    "emptySeverityBody": "No PRs with active {severity} findings.",
+    "hoverCard": {
+      "title": "Findings",
+      "count": "{count, plural, one {# finding} other {# findings}}",
+      "empty": "No findings recorded for this pull request.",
+      "error": "Couldn’t load findings.",
+      "openFinding": "Open this finding on the pull request"
+    }
   },
   "timeline": {
     "goToReview": "Jump to this run’s findings below",

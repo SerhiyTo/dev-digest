@@ -5,6 +5,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PrMeta } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/prReview.json";
 import { PRRow } from "./PRRow";
@@ -41,10 +42,13 @@ function renderRow(
   meta: PrMeta,
   extra: Partial<React.ComponentProps<typeof PRRow>> = {},
 ) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-      <PRRow pr={meta} repoId="r1" {...extra} />
-    </NextIntlClientProvider>,
+    <QueryClientProvider client={qc}>
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <PRRow pr={meta} repoId="r1" {...extra} />
+      </NextIntlClientProvider>
+    </QueryClientProvider>,
   );
 }
 

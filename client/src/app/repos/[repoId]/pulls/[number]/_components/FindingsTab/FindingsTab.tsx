@@ -19,6 +19,7 @@ interface FindingsTabProps {
   lethalTrifecta: FindingRecord[];
   runs: ReviewRecord[];
   severity: Severity | null;
+  targetFindingId: string | null;
   severityCounts: SeverityCounts;
   runSeverityCounts: Record<string, SeverityCounts>;
   onSeverity: (severity: string | null) => void;
@@ -40,6 +41,7 @@ export function FindingsTab({
   lethalTrifecta,
   runs,
   severity,
+  targetFindingId,
   severityCounts,
   runSeverityCounts,
   onSeverity,
@@ -208,6 +210,7 @@ export function FindingsTab({
             headSha={headSha}
             severity={severity}
             onSeverity={onSeverity}
+            targetFindingId={targetFindingId}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
           />

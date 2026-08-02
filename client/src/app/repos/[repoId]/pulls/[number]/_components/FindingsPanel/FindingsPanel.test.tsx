@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { render, screen, cleanup, act } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
@@ -10,7 +10,19 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
 
 import { FindingsPanel } from "./FindingsPanel";
 
-afterEach(cleanup);
+const realScrollIntoView = Element.prototype.scrollIntoView;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+    setTimeout(() => cb(0), 0) as unknown as number) as typeof requestAnimationFrame;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  Element.prototype.scrollIntoView = realScrollIntoView;
+  cleanup();
+});
 
 const CRITICAL_FINDING: FindingRecord = {
   id: "f1",
@@ -93,5 +105,47 @@ describe("FindingsPanel — severity filter", () => {
     renderWithIntl(<FindingsPanel findings={[CRITICAL_FINDING]} prId="pr1" severity="SUGGESTION" />);
     expect(screen.getByText("No findings match")).toBeInTheDocument();
     expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
+  });
+});
+
+describe("FindingsPanel — deep-linked finding", () => {
+  const BOTH = [CRITICAL_FINDING, WARNING_FINDING];
+
+  it("scrolls the deep-linked finding into view", () => {
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      this.getBoundingClientRect = () =>
+        ({ top: 100, bottom: 300 }) as DOMRect;
+    });
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderWithIntl(<FindingsPanel findings={BOTH} prId="pr1" targetFindingId="f2" />);
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("keeps retrying while the target is still out of view", () => {
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      this.getBoundingClientRect = () => ({ top: -900, bottom: -700 }) as DOMRect;
+    });
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderWithIntl(<FindingsPanel findings={BOTH} prId="pr1" targetFindingId="f2" />);
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(scrollIntoView.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("does not scroll when no finding is deep-linked", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderWithIntl(<FindingsPanel findings={BOTH} prId="pr1" />);
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

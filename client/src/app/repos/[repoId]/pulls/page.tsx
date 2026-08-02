@@ -146,6 +146,7 @@ export default function PullsPage() {
               key={pr.number}
               pr={pr}
               repoId={repoId}
+              repoFullName={activeRepo?.full_name ?? null}
               activeSeverity={severity}
               onSeverity={setSeverity}
             />

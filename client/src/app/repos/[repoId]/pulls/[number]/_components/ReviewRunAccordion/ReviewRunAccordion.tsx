@@ -33,6 +33,7 @@ export function ReviewRunAccordion({
   headSha,
   severity = null,
   onSeverity,
+  targetFindingId = null,
   targetRunId = null,
   targetNonce = 0,
 }: {
@@ -43,6 +44,7 @@ export function ReviewRunAccordion({
   headSha?: string | null;
   severity?: Severity | null;
   onSeverity?: (severity: string | null) => void;
+  targetFindingId?: string | null;
   /** When this matches review.run_id, the accordion opens and scrolls into view
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
@@ -60,6 +62,10 @@ export function ReviewRunAccordion({
   React.useEffect(() => {
     if (severity) setOpen(true);
   }, [severity]);
+  const hasTarget = !!targetFindingId && review.findings.some((f) => f.id === targetFindingId);
+  React.useEffect(() => {
+    if (hasTarget) setOpen(true);
+  }, [hasTarget, targetFindingId]);
   const del = useDeleteReview(prId);
   const findings = review.findings;
   const counts = countActiveBySeverity(findings);
@@ -164,6 +170,7 @@ export function ReviewRunAccordion({
             repoFullName={repoFullName}
             headSha={headSha}
             severity={severity}
+            targetFindingId={hasTarget ? targetFindingId : null}
           />
         </div>
       )}
