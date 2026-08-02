@@ -24,6 +24,10 @@ Each module has its own CLAUDE.md (auto-loads when you work there) and README.
   `server/src/vendor/shared`, mirrored in `client/src/vendor/shared`.
 - Only Postgres runs in Docker (`docker-compose.yml`); API and web run on the
   host via `pnpm dev` in each folder.
+- **Do not add comments to code.** Convey intent through naming, types, and
+  small functions. Non-obvious "why" goes in the module's `specs/` or
+  `INSIGHTS.md`, not inline. Leave existing comments in place unless you are
+  rewriting that code — this is a rule for new code, not a cleanup task.
 
 ## Commands (root)
 

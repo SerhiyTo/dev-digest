@@ -3,7 +3,8 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Chip, Button, TextInput, SelectInput } from "@devdigest/ui";
+import { Chip, Button, TextInput, SelectInput, SEV } from "@devdigest/ui";
+import type { Severity } from "@devdigest/shared";
 import { STATUS_FILTERS } from "../../constants";
 import { s } from "../../styles";
 
@@ -14,6 +15,8 @@ export function FilterBar({
   onQuery,
   sort,
   onSort,
+  severity = null,
+  onSeverity,
   onRefresh,
   refreshing,
 }: {
@@ -23,6 +26,8 @@ export function FilterBar({
   onQuery: (v: string) => void;
   sort: string;
   onSort: (v: string) => void;
+  severity?: Severity | null;
+  onSeverity?: (severity: string | null) => void;
   onRefresh: () => void;
   refreshing: boolean;
 }) {
@@ -42,6 +47,17 @@ export function FilterBar({
             {t(`list.filter.${labelKey}`)}
           </Chip>
         ))}
+        {severity && (
+          <Chip
+            active
+            icon="X"
+            color={SEV[severity].c}
+            onClick={() => onSeverity?.(null)}
+            title={t("list.severityFilterClear", { severity: t(`panel.severity.${severity}`) })}
+          >
+            {t("list.severityFilterActive", { severity: t(`panel.severity.${severity}`) })}
+          </Chip>
+        )}
       </div>
       <div style={s.filterActions}>
         <SelectInput value={sort} onChange={onSort} options={sortOptions} mono={false} />

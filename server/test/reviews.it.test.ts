@@ -257,6 +257,58 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('PR list aggregates findings_by_severity: active findings only, null when unreviewed', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr: reviewed } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const [unreviewed] = await pg.handle.db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId,
+        repoId: repo.id,
+        number: 484,
+        title: 'Never reviewed',
+        author: 'tomek.w',
+        branch: 'chore/y',
+        base: 'main',
+        headSha: 'c9d8e7f6',
+        additions: 1,
+        deletions: 0,
+        filesCount: 1,
+        status: 'needs_review',
+      })
+      .returning();
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'SevAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${reviewed.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, reviewed.id, { expected: 1 });
+
+    const listPulls = async () =>
+      (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+
+    const before = await listPulls();
+    const r = before.find((p: { number: number }) => p.number === reviewed.number);
+    const u = before.find((p: { number: number }) => p.number === unreviewed!.number);
+    expect(r.findings_by_severity).toEqual({ CRITICAL: 1, WARNING: 0, SUGGESTION: 0 });
+    expect(u.findings_by_severity).toBeNull();
+
+    const reviews = (
+      await app.inject({ method: 'GET', url: `/pulls/${reviewed.id}/reviews` })
+    ).json();
+    await app.inject({ method: 'POST', url: `/findings/${reviews[0].findings[0].id}/dismiss` });
+
+    const after = await listPulls();
+    const r2 = after.find((p: { number: number }) => p.number === reviewed.number);
+    expect(r2.findings_by_severity).toEqual({ CRITICAL: 0, WARNING: 0, SUGGESTION: 0 });
+
+    await app.close();
+  });
+
   it('dual-provider structured output: anthropic provider returns the same Review shape', async () => {
     const app = await appWith(REVIEW_FIXTURE, 'anthropic');
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);

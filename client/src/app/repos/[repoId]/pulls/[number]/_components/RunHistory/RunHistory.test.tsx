@@ -4,8 +4,8 @@
  * a settled run is colored/labelled by its denormalized blocker/finding counts,
  * and shows the review score ring.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { RunSummary } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
@@ -35,10 +35,13 @@ function run(o: Partial<RunSummary>): RunSummary {
   };
 }
 
-function renderRuns(runs: RunSummary[]) {
+function renderRuns(
+  runs: RunSummary[],
+  extra: Partial<React.ComponentProps<typeof RunHistory>> = {},
+) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-      <RunHistory runs={runs} onOpenTrace={() => {}} />
+      <RunHistory runs={runs} onOpenTrace={() => {}} {...extra} />
     </NextIntlClientProvider>,
   );
 }
@@ -90,5 +93,36 @@ describe("RunHistory — tokens · cost line", () => {
   it("a failed run shows no tokens/cost line", () => {
     renderRuns([run({ status: "failed", error: "boom", score: null, blockers: null })]);
     expect(screen.queryByText(/tok/)).not.toBeInTheDocument();
+  });
+});
+
+describe("RunHistory — severity counters", () => {
+  const COUNTS = { "run-1": { CRITICAL: 2, WARNING: 1, SUGGESTION: 0 } };
+
+  it("replaces the flat findings count with per-severity counters", () => {
+    renderRuns([run({ findings_count: 3, blockers: 2 })], { severityCounts: COUNTS });
+    expect(screen.getByLabelText(/2 active CRITICAL findings/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/1 active WARNING finding\b/)).toBeInTheDocument();
+    expect(screen.queryByText("3 finding(s)")).not.toBeInTheDocument();
+    expect(screen.getByText(/2 blockers/)).toBeInTheDocument();
+  });
+
+  it("falls back to the denormalized count for a run with no stored review", () => {
+    renderRuns([run({ run_id: "run-9", findings_count: 3 })], { severityCounts: COUNTS });
+    expect(screen.getByText("3 finding(s)")).toBeInTheDocument();
+  });
+
+  it("clicking a counter selects that severity", () => {
+    const onSeverity = vi.fn();
+    renderRuns([run({})], { severityCounts: COUNTS, onSeverity });
+    fireEvent.click(screen.getByLabelText(/2 active CRITICAL findings/));
+    expect(onSeverity).toHaveBeenCalledWith("CRITICAL");
+  });
+
+  it("clicking the already-active counter clears the filter", () => {
+    const onSeverity = vi.fn();
+    renderRuns([run({})], { severityCounts: COUNTS, onSeverity, activeSeverity: "CRITICAL" });
+    fireEvent.click(screen.getByLabelText(/2 active CRITICAL findings/));
+    expect(onSeverity).toHaveBeenCalledWith(null);
   });
 });

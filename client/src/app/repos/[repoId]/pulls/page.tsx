@@ -16,6 +16,7 @@ import { RepoNotFound } from "@/components/repo-not-found";
 import { usePulls, useRefreshRepo } from "@/lib/hooks";
 import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
 import { ApiError } from "@/lib/api";
+import { parseSeverity } from "@/lib/severity";
 import { COLUMN_KEYS, SKELETON_ROWS } from "./constants";
 import { s } from "./styles";
 import { PRRow } from "./_components/PRRow";
@@ -43,12 +44,21 @@ export default function PullsPage() {
     router.replace(`/repos/${repoId}/pulls?${sp.toString()}`);
   };
 
+  const severity = parseSeverity(search.get("severity"));
+  const setSeverity = (sev: string | null) => {
+    const sp = new URLSearchParams(search.toString());
+    if (sev == null) sp.delete("severity");
+    else sp.set("severity", sev);
+    router.replace(`/repos/${repoId}/pulls${sp.toString() ? `?${sp.toString()}` : ""}`);
+  };
+
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState("newest");
 
   const q = query.trim().toLowerCase();
   const filtered = (pulls ?? [])
     .filter((p) => status === "all" || p.status === status)
+    .filter((p) => !severity || (p.findings_by_severity?.[severity] ?? 0) > 0)
     .filter((p) => !q || p.title.toLowerCase().includes(q) || String(p.number).includes(q))
     .slice()
     .sort((a, b) => {
@@ -93,6 +103,8 @@ export default function PullsPage() {
           onQuery={setQuery}
           sort={sort}
           onSort={setSort}
+          severity={severity}
+          onSeverity={setSeverity}
           onRefresh={() => refresh.mutate(repoId)}
           refreshing={refresh.isPending}
         />
@@ -121,13 +133,23 @@ export default function PullsPage() {
             icon="GitPullRequest"
             title={t("list.emptyTitle")}
             body={
-              status === "all"
-                ? t("list.emptyAllBody")
-                : t("list.emptyStatusBody", { status })
+              severity
+                ? t("list.emptySeverityBody", { severity: t(`panel.severity.${severity}`) })
+                : status === "all"
+                  ? t("list.emptyAllBody")
+                  : t("list.emptyStatusBody", { status })
             }
           />
         ) : (
-          filtered.map((pr) => <PRRow key={pr.number} pr={pr} repoId={repoId} />)
+          filtered.map((pr) => (
+            <PRRow
+              key={pr.number}
+              pr={pr}
+              repoId={repoId}
+              activeSeverity={severity}
+              onSeverity={setSeverity}
+            />
+          ))
         )}
       </div>
     </AppShell>

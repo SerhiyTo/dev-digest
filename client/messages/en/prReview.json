@@ -29,7 +29,18 @@
   "panel": {
     "hideLowConfidence": "Hide low confidence",
     "noMatchTitle": "No findings match",
-    "noMatchBody": "Adjust the filters above, or run a review to generate findings."
+    "noMatchBody": "Adjust the filters above, or run a review to generate findings.",
+    "severity": {
+      "CRITICAL": "CRITICAL",
+      "WARNING": "WARNING",
+      "SUGGESTION": "SUGGESTION"
+    },
+    "severityFilterTitle": "{count, plural, one {# active {severity} finding} other {# active {severity} findings}} — click to show only these",
+    "severityFilterClear": "Showing {severity} only — click again to show all",
+    "severityCountsHint": "counts exclude dismissed findings",
+    "runsHidden": "{count, plural, one {# agent run hidden} other {# agent runs hidden}} — no {severity} findings",
+    "showAllRuns": "Show all",
+    "noRunsMatchBody": "No agent run reported a {severity} finding on this PR."
   },
   "runReview": {
     "runAll": "Run all enabled agents",
@@ -91,6 +102,7 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "findings": "Findings",
       "status": "Status",
       "cost": "Cost",
       "updated": "Updated"
@@ -100,7 +112,10 @@
     "errorBody": "The engine returned an error.",
     "emptyTitle": "No pull requests",
     "emptyAllBody": "No open PRs found for this repo yet. Refresh to sync from GitHub.",
-    "emptyStatusBody": "No PRs with status “{status}”."
+    "emptyStatusBody": "No PRs with status “{status}”.",
+    "severityFilterActive": "Findings: {severity}",
+    "severityFilterClear": "Clear the {severity} findings filter",
+    "emptySeverityBody": "No PRs with active {severity} findings."
   },
   "timeline": {
     "goToReview": "Jump to this run’s findings below",

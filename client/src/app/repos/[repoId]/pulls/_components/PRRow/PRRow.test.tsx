@@ -1,7 +1,9 @@
 /* PRRow — the Cost column shows the PR's aggregated run cost ($0.014) or a
-   muted "—" when no run has recorded a cost. Spec: specs/2026-07-29-run-cost.md */
+   muted "—" when no run has recorded a cost (specs/2026-07-29-run-cost.md), and
+   the Findings column shows per-severity counters that filter the list
+   (specs/2026-08-01-findings-by-severity.md). */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { PrMeta } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/prReview.json";
@@ -30,14 +32,18 @@ function pr(o: Partial<PrMeta>): PrMeta {
     updated_at: "2026-07-29T09:00:00.000Z",
     score: 61,
     cost_usd: null,
+    findings_by_severity: { CRITICAL: 2, WARNING: 2, SUGGESTION: 2 },
     ...o,
   };
 }
 
-function renderRow(meta: PrMeta) {
+function renderRow(
+  meta: PrMeta,
+  extra: Partial<React.ComponentProps<typeof PRRow>> = {},
+) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-      <PRRow pr={meta} repoId="r1" />
+      <PRRow pr={meta} repoId="r1" {...extra} />
     </NextIntlClientProvider>,
   );
 }
@@ -50,7 +56,41 @@ describe("PRRow — Cost column", () => {
 
   it("shows a dash when no run has recorded a cost — never $0.00", () => {
     renderRow(pr({ cost_usd: null }));
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
+  });
+});
+
+describe("PRRow — Findings column", () => {
+  it("shows one counter per non-zero severity", () => {
+    renderRow(pr({ findings_by_severity: { CRITICAL: 3, WARNING: 0, SUGGESTION: 2 } }));
+    expect(screen.getByLabelText(/3 active CRITICAL findings/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/2 active SUGGESTION findings/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/WARNING/)).not.toBeInTheDocument();
+  });
+
+  it("shows a dash when the PR has never been reviewed — never a fake 0", () => {
+    renderRow(pr({ findings_by_severity: null, cost_usd: 0.014 }));
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/CRITICAL/)).not.toBeInTheDocument();
+  });
+
+  it("shows 0 for a reviewed PR with nothing outstanding", () => {
+    renderRow(pr({ findings_by_severity: { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 } }));
+    expect(screen.getByText("0")).toBeInTheDocument();
+  });
+
+  it("selects a severity on click without navigating into the PR", () => {
+    const onSeverity = vi.fn();
+    renderRow(pr({}), { onSeverity });
+    fireEvent.click(screen.getByLabelText(/2 active CRITICAL findings/));
+    expect(onSeverity).toHaveBeenCalledWith("CRITICAL");
+  });
+
+  it("clicking the active severity clears the filter", () => {
+    const onSeverity = vi.fn();
+    renderRow(pr({}), { onSeverity, activeSeverity: "CRITICAL" });
+    fireEvent.click(screen.getByLabelText(/2 active CRITICAL findings/));
+    expect(onSeverity).toHaveBeenCalledWith(null);
   });
 });

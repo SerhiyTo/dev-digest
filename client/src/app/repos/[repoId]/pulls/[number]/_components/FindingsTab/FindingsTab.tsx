@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
+import { SeverityFilterBar } from "../SeverityFilterBar";
 import { s } from "./styles";
-import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
+import type { FindingRecord, ReviewRecord, RunSummary, PrCommit, Severity } from "@devdigest/shared";
+import { runsMatchingSeverity, type SeverityCounts } from "@/lib/severity";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 interface FindingsTabProps {
@@ -15,6 +18,10 @@ interface FindingsTabProps {
   reviewRunning: boolean;
   lethalTrifecta: FindingRecord[];
   runs: ReviewRecord[];
+  severity: Severity | null;
+  severityCounts: SeverityCounts;
+  runSeverityCounts: Record<string, SeverityCounts>;
+  onSeverity: (severity: string | null) => void;
   prRuns: RunSummary[] | undefined;
   prCommits: PrCommit[];
   cancelMutation: UseMutationResult<any, any, string, any>;
@@ -32,6 +39,10 @@ export function FindingsTab({
   reviewRunning,
   lethalTrifecta,
   runs,
+  severity,
+  severityCounts,
+  runSeverityCounts,
+  onSeverity,
   prRuns,
   prCommits,
   cancelMutation,
@@ -41,6 +52,7 @@ export function FindingsTab({
   onDelete,
   onRunDone,
 }: FindingsTabProps) {
+  const t = useTranslations("prReview");
   const handleCancelAll = useCallback(() => {
     liveRunIds.forEach((id) => cancelMutation.mutate(id));
   }, [liveRunIds, cancelMutation]);
@@ -70,6 +82,12 @@ export function FindingsTab({
   const handleGoToReview = useCallback((runId: string) => {
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
+
+  const shownRuns = React.useMemo(
+    () => runsMatchingSeverity(runs, severity),
+    [runs, severity],
+  );
+  const hiddenRunCount = runs.length - shownRuns.length;
 
   return (
     <section>
@@ -131,6 +149,9 @@ export function FindingsTab({
           <RunHistory
             runs={prRuns ?? []}
             commits={prCommits}
+            severityCounts={runSeverityCounts}
+            activeSeverity={severity}
+            onSeverity={onSeverity}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
             onDelete={handleDelete}
@@ -144,6 +165,23 @@ export function FindingsTab({
       >
         Review runs
       </SectionLabel>
+      {runs.length > 0 && (
+        <SeverityFilterBar counts={severityCounts} active={severity} onSelect={onSeverity} />
+      )}
+      {hiddenRunCount > 0 && (
+        <div style={s.hiddenRuns}>
+          <Icon.EyeOff size={13} />
+          <span>
+            {t("panel.runsHidden", {
+              count: hiddenRunCount,
+              severity: t(`panel.severity.${severity!}`),
+            })}
+          </span>
+          <button type="button" style={s.hiddenRunsClear} onClick={() => onSeverity(null)}>
+            {t("panel.showAllRuns")}
+          </button>
+        </div>
+      )}
       {runs.length === 0 ? (
         reviewRunning || liveRunIds.length > 0 ? null : (
           <EmptyState
@@ -152,16 +190,24 @@ export function FindingsTab({
             body="Run a review to generate findings. Use Run Review ▾ above (run all enabled agents or a specific one)."
           />
         )
+      ) : shownRuns.length === 0 ? (
+        <EmptyState
+          icon="Filter"
+          title={t("panel.noMatchTitle")}
+          body={t("panel.noRunsMatchBody", { severity: t(`panel.severity.${severity!}`) })}
+        />
       ) : (
         prId &&
-        runs.map((review, i) => (
+        shownRuns.map((review, i) => (
           <ReviewRunAccordion
             key={review.id}
             review={review}
             prId={prId}
-            defaultOpen={i === 0}
+            defaultOpen={severity != null || i === 0}
             repoFullName={repoFullName}
             headSha={headSha}
+            severity={severity}
+            onSeverity={onSeverity}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
           />
