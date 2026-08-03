@@ -26,3 +26,6 @@ test-results/
 
 # skill eval run artifacts (outputs, gradings, benchmarks)
 .claude/skills/*-workspace/
+
+# pr-self-review run state (report the merge gate reads, generated PR draft)
+.claude/pr-self-review/
