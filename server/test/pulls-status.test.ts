@@ -6,7 +6,13 @@
  * + age, so it gets unit coverage independent of the route's queries.
  */
 import { describe, it, expect } from 'vitest';
-import { deriveReviewStatus, rollupSeverities, STALE_DAYS } from '../src/modules/pulls/status.js';
+import {
+  deriveReviewStatus,
+  emptySeverityCounts,
+  foldSeverityRows,
+  rollupSeverities,
+  STALE_DAYS,
+} from '../src/modules/pulls/status.js';
 
 const DAY = 86_400_000;
 const now = Date.UTC(2026, 5, 11);
@@ -50,7 +56,7 @@ describe('deriveReviewStatus', () => {
 });
 
 describe('rollupSeverities', () => {
-  it('tallies findings into critical / warning / suggestion buckets (ignores unknown)', () => {
+  it('tallies findings into CRITICAL / WARNING / SUGGESTION buckets (ignores unknown)', () => {
     expect(
       rollupSeverities([
         { severity: 'CRITICAL' },
@@ -59,10 +65,37 @@ describe('rollupSeverities', () => {
         { severity: 'SUGGESTION' },
         { severity: 'WEIRD' },
       ]),
-    ).toEqual({ critical: 2, warning: 1, suggestion: 1 });
+    ).toEqual({ CRITICAL: 2, WARNING: 1, SUGGESTION: 1 });
   });
 
   it('is all-zero for no findings', () => {
-    expect(rollupSeverities([])).toEqual({ critical: 0, warning: 0, suggestion: 0 });
+    expect(rollupSeverities([])).toEqual(emptySeverityCounts());
+    expect(emptySeverityCounts()).toEqual({ CRITICAL: 0, WARNING: 0, SUGGESTION: 0 });
+  });
+
+  it('keys match the PrMeta.findings_by_severity contract exactly (no stray keys)', () => {
+    expect(Object.keys(rollupSeverities([{ severity: 'WEIRD' }]))).toEqual([
+      'CRITICAL',
+      'WARNING',
+      'SUGGESTION',
+    ]);
+  });
+});
+
+describe('foldSeverityRows', () => {
+  it('accumulates pre-grouped COUNT(*) rows', () => {
+    expect(
+      foldSeverityRows([
+        { severity: 'CRITICAL', n: 3 },
+        { severity: 'SUGGESTION', n: 2 },
+        { severity: 'WEIRD', n: 9 },
+      ]),
+    ).toEqual({ CRITICAL: 3, WARNING: 0, SUGGESTION: 2 });
+  });
+
+  it('coerces string counts (pg returns bigint COUNT as a string)', () => {
+    expect(
+      foldSeverityRows([{ severity: 'WARNING', n: '4' as unknown as number }]),
+    ).toEqual({ CRITICAL: 0, WARNING: 4, SUGGESTION: 0 });
   });
 });

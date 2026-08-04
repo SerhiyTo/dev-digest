@@ -3,7 +3,10 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Icon, CircularScore, type IconName } from "@devdigest/ui";
-import type { RunSummary, PrCommit } from "@devdigest/shared";
+import type { RunSummary, PrCommit, Severity } from "@devdigest/shared";
+import { formatCost } from "@/lib/cost";
+import { SeverityCounts } from "@/components/severity-counts";
+import type { SeverityCounts as Counts } from "@/lib/severity";
 
 /**
  * PR timeline — every agent run interleaved with the PR's commits, newest-first
@@ -87,12 +90,18 @@ function tsOf(s: string | null | undefined): number {
 export function RunHistory({
   runs,
   commits = [],
+  severityCounts,
+  activeSeverity = null,
+  onSeverity,
   onOpenTrace,
   onGoToReview,
   onDelete,
 }: {
   runs: RunSummary[];
   commits?: PrCommit[];
+  severityCounts?: Record<string, Counts>;
+  activeSeverity?: Severity | null;
+  onSeverity?: (severity: string | null) => void;
   /** Open the trace + log drawer for a run (the logs icon). */
   onOpenTrace: (runId: string) => void;
   /** Jump to this run's inline review accordion below (clicking the agent name). */
@@ -149,6 +158,7 @@ export function RunHistory({
         const r = item.run;
         const o = outcomeOf(r);
         const settled = r.status === "done";
+        const counts = severityCounts?.[r.run_id];
         return (
           <div key={`run:${r.run_id}`} style={rowStyle}>
             <Badge color={o.color} bg={o.bg} icon={o.icon}>
@@ -165,12 +175,12 @@ export function RunHistory({
                     background: "none",
                     border: "none",
                     padding: 0,
-                    font: "inherit",
+                    fontFamily: "inherit",
+                    fontSize: "inherit",
                     fontWeight: 600,
                     color: "var(--text-primary)",
                     cursor: onGoToReview ? "pointer" : "default",
-                    textDecoration: onGoToReview ? "underline" : "none",
-                    textDecorationStyle: "dotted",
+                    textDecoration: onGoToReview ? "underline dotted" : "none",
                     textUnderlineOffset: 3,
                   }}
                 >
@@ -189,14 +199,35 @@ export function RunHistory({
                 </div>
               )}
               {settled && (
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {t("runStatus.findings", { count: r.findings_count ?? 0 })}
-                  {(r.blockers ?? 0) > 0 ? t("runStatus.blockers", { count: r.blockers ?? 0 }) : ""}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-muted)" }}>
+                  {counts ? (
+                    <SeverityCounts
+                      counts={counts}
+                      active={activeSeverity}
+                      onSelect={onSeverity}
+                      size="sm"
+                    />
+                  ) : (
+                    <span>{t("runStatus.findings", { count: r.findings_count ?? 0 })}</span>
+                  )}
+                  {(r.blockers ?? 0) > 0 ? (
+                    <span>{t("runStatus.blockers", { count: r.blockers ?? 0 })}</span>
+                  ) : null}
                 </div>
               )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
               {r.ran_at && <span>{new Date(r.ran_at).toLocaleTimeString()}</span>}
+              {settled && (
+                <span className="tnum">
+                  {r.cost_usd != null
+                    ? t("timeline.runTokensCost", {
+                        tokens: (r.tokens_in ?? 0) + (r.tokens_out ?? 0),
+                        cost: formatCost(r.cost_usd),
+                      })
+                    : t("timeline.runTokens", { tokens: (r.tokens_in ?? 0) + (r.tokens_out ?? 0) })}
+                </span>
+              )}
             </div>
             <button
               type="button"

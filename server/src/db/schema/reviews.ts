@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  jsonb,
+  timestamp,
+  doublePrecision,
+  index,
+} from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
@@ -43,7 +52,9 @@ export const findings = pgTable('findings', {
   trifectaComponents: jsonb('trifecta_components').$type<string[]>(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
   dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
-});
+}, (tbl) => [
+  index('findings_review_id_severity_idx').on(tbl.reviewId, tbl.severity),
+]);
 
 export const prIntent = pgTable('pr_intent', {
   prId: uuid('pr_id')

@@ -7,9 +7,11 @@
 
 import React from "react";
 import { Icon, Badge } from "@devdigest/ui";
-import type { ReviewRecord, Verdict } from "@devdigest/shared";
+import type { ReviewRecord, Severity, Verdict } from "@devdigest/shared";
 import { FindingsPanel } from "../FindingsPanel";
 import { VerdictBanner } from "../VerdictBanner";
+import { SeverityCounts } from "@/components/severity-counts";
+import { countActiveBySeverity } from "@/lib/severity";
 import { useDeleteReview } from "../../../../../../../lib/hooks/reviews";
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -29,6 +31,9 @@ export function ReviewRunAccordion({
   defaultOpen = false,
   repoFullName,
   headSha,
+  severity = null,
+  onSeverity,
+  targetFindingId = null,
   targetRunId = null,
   targetNonce = 0,
 }: {
@@ -37,6 +42,9 @@ export function ReviewRunAccordion({
   defaultOpen?: boolean;
   repoFullName?: string | null;
   headSha?: string | null;
+  severity?: Severity | null;
+  onSeverity?: (severity: string | null) => void;
+  targetFindingId?: string | null;
   /** When this matches review.run_id, the accordion opens and scrolls into view
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
@@ -51,9 +59,17 @@ export function ReviewRunAccordion({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetRunId, targetNonce, review.run_id]);
+  React.useEffect(() => {
+    if (severity) setOpen(true);
+  }, [severity]);
+  const hasTarget = !!targetFindingId && review.findings.some((f) => f.id === targetFindingId);
+  React.useEffect(() => {
+    if (hasTarget) setOpen(true);
+  }, [hasTarget, targetFindingId]);
   const del = useDeleteReview(prId);
   const findings = review.findings;
-  const blockers = findings.filter((f) => f.severity === "CRITICAL" && !f.dismissed_at).length;
+  const counts = countActiveBySeverity(findings);
+  const blockers = counts.CRITICAL;
   const verdictColor = review.verdict ? VERDICT_COLOR[review.verdict] ?? "var(--text-muted)" : "var(--text-muted)";
 
   return (
@@ -93,6 +109,7 @@ export function ReviewRunAccordion({
             {review.verdict.replace("_", " ")}
           </Badge>
         )}
+        <SeverityCounts counts={counts} active={severity} onSelect={onSeverity} />
         <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
           {findings.length} finding{findings.length === 1 ? "" : "s"}
           {blockers > 0 ? ` · ${blockers} blocker${blockers === 1 ? "" : "s"}` : ""}
@@ -152,6 +169,8 @@ export function ReviewRunAccordion({
             prId={prId}
             repoFullName={repoFullName}
             headSha={headSha}
+            severity={severity}
+            targetFindingId={hasTarget ? targetFindingId : null}
           />
         </div>
       )}

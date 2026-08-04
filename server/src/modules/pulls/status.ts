@@ -1,4 +1,4 @@
-import type { PrStatus } from '@devdigest/shared';
+import type { PrStatus, Severity } from '@devdigest/shared';
 
 /**
  * PR-list rollup helpers (pure — no DB / `this`, so they unit-test cleanly).
@@ -13,19 +13,20 @@ import type { PrStatus } from '@devdigest/shared';
 /** Open PRs whose current head was reviewed but untouched this long read "stale". */
 export const STALE_DAYS = 7;
 
-export interface SeverityCounts {
-  critical: number;
-  warning: number;
-  suggestion: number;
+export type SeverityCounts = Record<Severity, number>;
+
+export function emptySeverityCounts(): SeverityCounts {
+  return { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 };
 }
 
-/** Tally finding severities (CRITICAL / WARNING / SUGGESTION) for one review. */
 export function rollupSeverities(rows: { severity: string }[]): SeverityCounts {
-  const c: SeverityCounts = { critical: 0, warning: 0, suggestion: 0 };
+  return foldSeverityRows(rows.map((r) => ({ severity: r.severity, n: 1 })));
+}
+
+export function foldSeverityRows(rows: { severity: string; n: number }[]): SeverityCounts {
+  const c = emptySeverityCounts();
   for (const r of rows) {
-    if (r.severity === 'CRITICAL') c.critical += 1;
-    else if (r.severity === 'WARNING') c.warning += 1;
-    else if (r.severity === 'SUGGESTION') c.suggestion += 1;
+    if (r.severity in c) c[r.severity as Severity] += Number(r.n);
   }
   return c;
 }

@@ -5,12 +5,27 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
-import type { PrMeta } from "@/lib/types";
+import type { PrMeta, Severity } from "@/lib/types";
+import { formatCost } from "@/lib/cost";
+import { SeverityCounts } from "@/components/severity-counts";
+import { FindingsHoverCard } from "../FindingsHoverCard";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
 
-export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
+export function PRRow({
+  pr,
+  repoId,
+  repoFullName,
+  activeSeverity = null,
+  onSeverity,
+}: {
+  pr: PrMeta;
+  repoId: string;
+  repoFullName?: string | null;
+  activeSeverity?: Severity | null;
+  onSeverity?: (severity: string | null) => void;
+}) {
   const t = useTranslations("prReview");
   const router = useRouter();
   const [h, setH] = React.useState(false);
@@ -54,9 +69,32 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
         )}
       </div>
       <div>
+        <FindingsHoverCard
+          prId={pr.id}
+          repoId={repoId}
+          prNumber={pr.number}
+          repoFullName={repoFullName}
+          headSha={pr.head_sha}
+          disabled={pr.findings_by_severity == null}
+        >
+          <SeverityCounts
+            counts={pr.findings_by_severity}
+            active={activeSeverity}
+            onSelect={onSeverity}
+          />
+        </FindingsHoverCard>
+      </div>
+      <div>
         <Badge dot color={st.c} bg="transparent">
           {t(`list.status.${st.labelKey}`)}
         </Badge>
+      </div>
+      <div style={s.costCell}>
+        {pr.cost_usd != null ? (
+          <span className="mono tnum">{formatCost(pr.cost_usd)}</span>
+        ) : (
+          <span style={s.muted}>—</span>
+        )}
       </div>
       <div style={s.updatedCell}>{relativeTime(pr.updated_at)}</div>
     </div>

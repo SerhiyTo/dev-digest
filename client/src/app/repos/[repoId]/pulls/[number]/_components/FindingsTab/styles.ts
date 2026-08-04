@@ -45,4 +45,23 @@ export const s = {
     display: "flex",
     gap: 8,
   } satisfies CSSProperties,
+  hiddenRuns: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 14,
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  hiddenRunsClear: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    color: "var(--accent-text)",
+    cursor: "pointer",
+    textDecoration: "underline dotted",
+    textUnderlineOffset: 3,
+  } satisfies CSSProperties,
 } as const;

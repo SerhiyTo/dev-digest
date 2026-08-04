@@ -16,6 +16,21 @@ import { ExternalServiceError } from '../../platform/errors.js';
 const DEFAULT_TIMEOUT = 60_000;
 const DEFAULT_MAX_TOKENS = 4096;
 
+/**
+ * Claude 5-family models (claude-sonnet-5, claude-opus-5, …) reject
+ * `temperature` with 400 "temperature is deprecated for this model".
+ * Version digit may follow the family name (claude-sonnet-5) or lead it in
+ * legacy ids (claude-3-5-sonnet); take the first digit after "claude-…-".
+ */
+export function anthropicTuningParams(
+  model: string,
+  temperature: number | undefined,
+): { temperature?: number } {
+  const major = /^claude-(?:[a-z]+-)*?(\d+)/.exec(model)?.[1];
+  if (major && Number(major) >= 5) return {};
+  return { temperature: temperature ?? 0 };
+}
+
 /** Anthropic has no embeddings API; embeddings come from the OpenAI Embedder. */
 function splitSystem(messages: ChatMessage[]): {
   system: string;
@@ -69,7 +84,7 @@ export class AnthropicProvider implements LLMProvider {
       system: system || undefined,
       messages: rest,
       max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
-      temperature: req.temperature ?? 0.2,
+      ...anthropicTuningParams(req.model, req.temperature ?? 0.2),
     });
     const text = res.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -104,7 +119,7 @@ export class AnthropicProvider implements LLMProvider {
             system: system || undefined,
             messages,
             max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
-            temperature: req.temperature ?? 0,
+            ...anthropicTuningParams(req.model, req.temperature),
             tools: [
               {
                 name: toolName,

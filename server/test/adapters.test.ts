@@ -10,6 +10,7 @@ import {
 import { assemblePrompt } from '../src/platform/prompt.js';
 import { groundFindings } from '../src/platform/grounding.js';
 import { estimateCost } from '../src/adapters/llm/pricing.js';
+import { anthropicTuningParams } from '../src/adapters/llm/anthropic.js';
 
 describe('mock adapters (no network)', () => {
   it('MockGitClient.diff parses into hunks with new line numbers', async () => {
@@ -96,6 +97,24 @@ describe('structured review pipeline (mock LLM → grounding)', () => {
     expect(grounded.kept[0]!.id).toBe('f1');
     expect(grounded.dropped[0]!.finding.id).toBe('f-hallucinated');
     expect(llm.calls.find((c) => c.method === 'completeStructured')).toBeTruthy();
+  });
+});
+
+describe('anthropic tuning params', () => {
+  it('omits temperature for Claude 5-family models (API rejects it as deprecated)', () => {
+    expect(anthropicTuningParams('claude-sonnet-5', 0.2)).toEqual({});
+    expect(anthropicTuningParams('claude-opus-5', 0)).toEqual({});
+    expect(anthropicTuningParams('claude-fable-5', undefined)).toEqual({});
+    expect(anthropicTuningParams('claude-sonnet-5-20260115', 0.2)).toEqual({});
+  });
+
+  it('keeps temperature for pre-5 Claude models', () => {
+    expect(anthropicTuningParams('claude-sonnet-4-5', 0.2)).toEqual({ temperature: 0.2 });
+    expect(anthropicTuningParams('claude-opus-4-1', undefined)).toEqual({ temperature: 0 });
+    expect(anthropicTuningParams('claude-3-5-sonnet-20241022', 0.7)).toEqual({
+      temperature: 0.7,
+    });
+    expect(anthropicTuningParams('claude-3-7-sonnet-latest', 0)).toEqual({ temperature: 0 });
   });
 });
 

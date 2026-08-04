@@ -209,6 +209,103 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(run!.findingsCount).toBe(1);
     expect(run!.grounding).toBe('1/2 passed');
 
+    // cost propagates: mock LLM returns costUsd per call → agent_runs, trace
+    // stats, and the timeline RunSummary all carry the same non-null value.
+    expect(run!.costUsd).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBe(run!.costUsd);
+    const timeline = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(timeline[0].cost_usd).toBe(run!.costUsd);
+
+    await app.close();
+  });
+
+  it('PR list aggregates cost: SUM of non-null run costs, null when no run has cost', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    // PR A: two priced runs + one failed (null cost); PR B: only a null-cost run.
+    const { repo, pr: prA } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const [prB] = await pg.handle.db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId,
+        repoId: repo.id,
+        number: 483,
+        title: 'No-cost PR',
+        author: 'deepak.r',
+        branch: 'chore/x',
+        base: 'main',
+        headSha: 'e5f6a7b8',
+        additions: 1,
+        deletions: 0,
+        filesCount: 1,
+        status: 'needs_review',
+      })
+      .returning();
+    await pg.handle.db.insert(t.agentRuns).values([
+      { workspaceId, prId: prA.id, status: 'done', costUsd: 0.01 },
+      { workspaceId, prId: prA.id, status: 'done', costUsd: 0.004 },
+      { workspaceId, prId: prA.id, status: 'failed', costUsd: null },
+      { workspaceId, prId: prB!.id, status: 'failed', costUsd: null },
+    ]);
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const a = pulls.find((p: { number: number }) => p.number === prA.number);
+    const b = pulls.find((p: { number: number }) => p.number === prB!.number);
+    expect(a.cost_usd).toBeCloseTo(0.014, 10);
+    // never $0.00 from missing data — all-null sums stay null
+    expect(b.cost_usd).toBeNull();
+
+    await app.close();
+  });
+
+  it('PR list aggregates findings_by_severity: active findings only, null when unreviewed', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr: reviewed } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const [unreviewed] = await pg.handle.db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId,
+        repoId: repo.id,
+        number: 484,
+        title: 'Never reviewed',
+        author: 'tomek.w',
+        branch: 'chore/y',
+        base: 'main',
+        headSha: 'c9d8e7f6',
+        additions: 1,
+        deletions: 0,
+        filesCount: 1,
+        status: 'needs_review',
+      })
+      .returning();
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'SevAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${reviewed.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, reviewed.id, { expected: 1 });
+
+    const listPulls = async () =>
+      (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+
+    const before = await listPulls();
+    const r = before.find((p: { number: number }) => p.number === reviewed.number);
+    const u = before.find((p: { number: number }) => p.number === unreviewed!.number);
+    expect(r.findings_by_severity).toEqual({ CRITICAL: 1, WARNING: 0, SUGGESTION: 0 });
+    expect(u.findings_by_severity).toBeNull();
+
+    const reviews = (
+      await app.inject({ method: 'GET', url: `/pulls/${reviewed.id}/reviews` })
+    ).json();
+    await app.inject({ method: 'POST', url: `/findings/${reviews[0].findings[0].id}/dismiss` });
+
+    const after = await listPulls();
+    const r2 = after.find((p: { number: number }) => p.number === reviewed.number);
+    expect(r2.findings_by_severity).toEqual({ CRITICAL: 0, WARNING: 0, SUGGESTION: 0 });
+
     await app.close();
   });
 

@@ -8,6 +8,7 @@ export function Chip({
   icon,
   count,
   color,
+  title,
 }: {
   children?: React.ReactNode;
   active?: boolean;
@@ -15,12 +16,15 @@ export function Chip({
   icon?: IconName;
   count?: number;
   color?: string;
+  title?: string;
 }) {
   const I = icon ? Icon[icon] : null;
   const [h, setH] = React.useState(false);
   return (
     <button
       onClick={onClick}
+      title={title}
+      aria-label={title}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
