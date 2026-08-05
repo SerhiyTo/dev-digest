@@ -4,6 +4,7 @@
  */
 import type { Finding } from '@devdigest/shared';
 import type { FindingRow, PullRow, ReviewRow } from './repository.js';
+import type { LinkedSkillRow } from '../agents/repository.js';
 
 // reduceReviews + sliceDiff live in @devdigest/reviewer-core (pure engine logic
 // shared with the CI runner); re-exported here for backward-compatible imports.
@@ -71,6 +72,13 @@ export function reviewToDto(
     created_at: review.createdAt.toISOString(),
     findings: findings.map(findingRowToDto),
   };
+}
+
+/** Bodies of the enabled linked skills, in link order. */
+export function renderSkillBlocks(links: LinkedSkillRow[]): string[] {
+  return links
+    .filter((link) => link.skill.enabled)
+    .map((link) => `### ${link.skill.name}\n${link.skill.body}`);
 }
 
 /**

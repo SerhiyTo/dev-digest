@@ -9,10 +9,20 @@ in the DB). The canonical, reviewable copies live next to this file:
 - [`general-reviewer.md`](./general-reviewer.md)
 - [`security-reviewer.md`](./security-reviewer.md)
 - [`performance-reviewer.md`](./performance-reviewer.md)
+- [`test-quality-reviewer.md`](./test-quality-reviewer.md)
+- [`api-contract-reviewer.md`](./api-contract-reviewer.md)
 
 > The DB is the source of truth at run time. These files are the human-readable
 > originals — when you change a prompt, edit the file here **and** push it to the
 > agent (`PUT /agents/:id`, which versions the change into `agent_versions`).
+
+`skills/` holds the markdown bodies of the skills the seeder links to these
+agents, in the same source-of-truth relationship: edit the file here, then push
+the body through the Skills UI or API. `skills/mock-overuse-gate.md` is
+deliberately not seeded — it's imported live through the UI as a demo — but the
+file still lives here so the demo is reproducible. `skills/mock-overuse-gate.zip`
+is that import fixture: `SKILL.md` (the same body) plus an inert `install.sh` and
+`package.json`, so the import preview has something real to show as skipped.
 
 ## How a prompt is assembled
 

@@ -23,7 +23,14 @@ export interface JobRunnerOptions {
 
 export interface EnqueuedJob {
   id: string;
-  /** Resolves when the job finishes (or rejects if it ultimately fails). */
+  /**
+   * Resolves when the job finishes (or rejects if it ultimately fails).
+   *
+   * Safe to ignore: enqueue() keeps a no-op rejection handler on it, so an
+   * unawaited failure can never surface as an unhandled rejection (which, under
+   * Node's default policy, terminates the API). A caller that DOES await it
+   * still observes the error.
+   */
   done: Promise<void>;
 }
 
@@ -96,6 +103,14 @@ export class JobRunner {
         throw err;
       }
     }) as Promise<void>;
+
+    // The failure is already durable in the `jobs` row above, so the rejection
+    // carries no information a caller is obliged to consume — but leaving it
+    // unobserved crashes the process. Attaching a handler here marks it as
+    // observed WITHOUT swallowing it: `done` itself still rejects for callers
+    // that opt in, since .catch() returns a new promise rather than mutating
+    // this one.
+    done.catch(() => {});
 
     return { id: jobId, done };
   }

@@ -15,6 +15,8 @@ slice is empty gets no subagent — that is the whole point of routing.
 | `server/src/db/migrations/*.sql`, `server/src/db/schema/**` | `postgresql-table-design` |
 | `**/vendor/shared/contracts/**`, or any added line containing `z.` | `zod` |
 | `*.{ts,tsx}` with an added generic, `as ` cast, `any`, or a `.d.ts` file | `typescript-expert` |
+| any diff with **removed or renamed** exported symbols, route paths, contract fields, props or env vars; any file containing `@deprecated` | `deprecation-policy` |
+| `server/src/vendor/shared/**`, `server/src/modules/*/routes.ts`, `server/src/db/schema/**`, `server/src/db/migrations/*.sql`, `reviewer-core/src/index.ts` | `breaking-change` |
 | **any diff** | `security` |
 | **any diff** | `project-rules` |
 

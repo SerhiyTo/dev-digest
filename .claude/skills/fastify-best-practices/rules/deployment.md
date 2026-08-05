@@ -159,7 +159,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgres://user:pass@db:5432/app
+      - DATABASE_URL=postgres://user:pass@db:5435/app
       - JWT_SECRET=${JWT_SECRET}
     depends_on:
       db:

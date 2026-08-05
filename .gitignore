@@ -29,3 +29,6 @@ test-results/
 
 # pr-self-review run state (report the merge gate reads, generated PR draft)
 .claude/pr-self-review/
+
+# superpowers SDD scratch (git-ignored working artifacts)
+.superpowers/

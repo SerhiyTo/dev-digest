@@ -32,3 +32,26 @@ export async function waitForPrRuns(
     await new Promise((r) => setTimeout(r, 25));
   }
 }
+
+/**
+ * `completeAgentRun` flips `agent_runs.status` to a terminal value BEFORE
+ * `saveRunTrace` writes the `run_traces` document, so a run that `waitForPrRuns`
+ * reports as finished may still have no trace. Tests that read
+ * `GET /runs/:id/trace` must await the trace row itself.
+ */
+export async function waitForRunTrace(
+  db: PgFixture['handle']['db'],
+  runId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<void> {
+  const { timeoutMs = 10_000 } = opts;
+  const start = Date.now();
+  for (;;) {
+    const rows = await db.select().from(t.runTraces).where(eq(t.runTraces.runId, runId));
+    if (rows.length > 0) return;
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for the run_traces row of run ${runId}`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}

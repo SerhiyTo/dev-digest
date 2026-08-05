@@ -38,6 +38,7 @@ WARNING**; an auditor may only reach CRITICAL for its own listed cases.
 | `next-best-practices` | a server secret or server-only import reachable from a `'use client'` module | CRITICAL |
 | `drizzle-orm-patterns` | a migration that does not match the schema in code; a lost or duplicated write; a query missing its tenant/workspace scope | CRITICAL |
 | `postgresql-table-design` | same as above, plus a destructive migration with no backfill | CRITICAL |
+| `breaking-change` | a public surface removed or narrowed with no expand step and no marker in the same diff; a destructive migration with no partner expand migration | CRITICAL |
 | `frontend-ui-architecture` | — | WARNING |
 | `fastify-best-practices` | — | WARNING |
 | `zod` | — | WARNING |
@@ -51,6 +52,15 @@ migration, an unmirrored vendored contract — are all detected in step 0 by
 `dependency-cruiser` and grep. The LLM auditor may *confirm* one, never
 originate it: the deterministic check is the source of truth and does not
 hallucinate. Everything the auditor finds on its own is at most WARNING.
+
+`breaking-change` reaches CRITICAL only for an **undeclared** break: the removal
+or narrowing is in the diff and the expand step and marker are not. A break that
+ships declared, marked and staged across releases is the procedure working, and
+reporting it would train people to bypass the gate. Its detection is `git diff`
+against the merge-base, so like `onion-architecture` the mechanical result is the
+source of truth; anything the auditor reasons its way to — a suspected semantic
+change, an unidentified consumer — is at most WARNING. It also must not
+re-report contract-mirror drift or hand-edited migration SQL: step 0 owns both.
 
 ## Normalising other scales
 

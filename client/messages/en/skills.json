@@ -7,13 +7,14 @@
     "searchPlaceholder": "Search skills…",
     "loadError": "Could not load skills.",
     "menu": {
+      "createFromScratch": "Create from scratch",
       "fromFile": "Import from file",
       "fromUrl": "Import from URL",
       "community": "Search community skills…"
     },
     "empty": {
       "title": "No skills yet",
-      "body": "Import a skill from a file, a URL, or the community catalog.",
+      "body": "Write one from scratch, or import a skill from a Markdown file or a .zip archive.",
       "cta": "Import from file"
     },
     "selectPrompt": {
@@ -30,9 +31,17 @@
       "body": "It may have been deleted."
     }
   },
+  "create": {
+    "title": "Create skill",
+    "subtitle": "A skill is a reusable block of instructions you link to one or more agents, in order.",
+    "cancel": "Cancel",
+    "create": "Create skill",
+    "creating": "Creating…",
+    "failed": "Could not create the skill"
+  },
   "drawer": {
     "title": "Add a skill",
-    "subtitle": "Import from a file, a URL, or search vetted community skills",
+    "subtitle": "Import a skill from a Markdown file or a .zip archive",
     "tabs": {
       "file": "From file",
       "url": "From URL",
@@ -45,11 +54,12 @@
     "nameHint": "Optional — derived from the first heading if blank.",
     "namePlaceholder": "pr-quality-rubric",
     "bodyLabel": "Skill body (Markdown)",
-    "bodyHint": "Pasted content is wrapped as untrusted data — never executed as instructions.",
+    "bodyHint": "This body becomes part of the reviewing agent's instructions — it arrives disabled until a human vets it.",
     "bodyPlaceholder": "# Rule\nDescribe the rule…",
+    "skipped": "skipped: {list}",
     "importing": "Importing…",
     "import": "Import skill",
-    "success": "Imported \"{name}\" (stored as untrusted data)."
+    "success": "Imported \"{name}\". Disabled until you vet + enable it."
   },
   "url": {
     "label": "Skill URL",
@@ -74,6 +84,8 @@
   "listItem": {
     "needsVetting": "needs vetting",
     "vettingTitle": "Untrusted source — vet before enabling",
+    "noDescription": "No description",
+    "footer": "{agents} agents",
     "type": {
       "rubric": "rubric",
       "convention": "convention",
@@ -84,7 +96,8 @@
       "manual": "Manual",
       "extracted": "Extracted",
       "community": "Community",
-      "imported_url": "Imported"
+      "imported_url": "Imported",
+      "imported_file": "Imported from file"
     }
   },
   "preview": {
@@ -93,9 +106,70 @@
     "disabled": "Disabled",
     "save": "Save",
     "edit": "Edit",
-    "untrustedNotice": "This skill came from an untrusted source. Its body is stored as data (delimiter-wrapped) and must be vetted before it is enabled for an agent.",
+    "untrustedNotice": "This skill came from an untrusted source. Its body becomes part of the reviewing agent's instructions, so it must be read and vetted by a person before it is enabled for an agent.",
     "bodyLabel": "Skill body (Markdown)",
     "bodyHint": "Saving a changed body creates a new immutable version.",
-    "version": "v{version}"
+    "version": "v{version}",
+    "caption": "Rendered as the reviewing agent receives it."
+  },
+  "editor": {
+    "tabs": {
+      "config": "Config",
+      "preview": "Preview",
+      "evals": "Evals",
+      "stats": "Stats",
+      "versions": "Versions"
+    },
+    "runOnEvals": "Run on evals",
+    "runOnEvalsDisabled": "Evals are coming in a later lesson."
+  },
+  "config": {
+    "nameLabel": "Name",
+    "namePlaceholder": "pr-quality-rubric",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "List the uncovered branches in the diff and flag any removed test assertions.",
+    "descriptionHint": "The description is the skill's interface — one imperative sentence about what the skill makes the agent do. Write \"List the uncovered branches…\", not \"About test coverage.\"",
+    "typeLabel": "Type",
+    "bodyLabel": "Skill body",
+    "bodyPlaceholder": "# Rule\nDescribe the rule…",
+    "bodyTokens": "~{count} tokens",
+    "bodyTokensHint": "Approximate — the exact count depends on the model's tokenizer.",
+    "unsaved": "Unsaved",
+    "versionLabelLabel": "What changed (optional)",
+    "versionLabelPlaceholder": "e.g. Tightened the coverage rule",
+    "save": "Save skill",
+    "savedToast": "Skill saved (v{version})"
+  },
+  "stats": {
+    "usedBy": "Used by",
+    "pullFrequency": "Pull frequency",
+    "acceptRate": "Accept rate",
+    "findings30d": "Findings (30d)",
+    "agentsUsing": "Agents using this skill",
+    "byCategory": "By category",
+    "empty": "—",
+    "disclaimer": "Metrics are aggregated over the agents this skill is linked to right now. This is correlation, not attribution: a finding is not attributed to any one skill, and changing links rewrites the history.",
+    "loadError": "Could not load stats."
+  },
+  "versions": {
+    "history": "Version history",
+    "count": "{count} versions",
+    "current": "Current",
+    "diff": "Diff",
+    "restore": "Restore",
+    "restoredFrom": "Restored from v{version}",
+    "loadError": "Could not load version history.",
+    "compare": "v{from} → v{to}",
+    "noChangesTitle": "No changes between these versions",
+    "confirmRestore": "Restore v{version}? This creates a new version with v{version}'s body."
+  },
+  "evals": {
+    "comingSoon": "Evals are coming in a later lesson."
+  },
+  "delete": {
+    "title": "Delete skill?",
+    "body": "This removes the skill and unlinks it from every agent. This can't be undone.",
+    "confirm": "Delete",
+    "cancel": "Cancel"
   }
 }

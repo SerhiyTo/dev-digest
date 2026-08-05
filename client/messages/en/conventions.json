@@ -15,12 +15,64 @@
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
     },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files",
+    "subtitleNever": "Not scanned yet",
+    "subtitleScanning": "Scanning the repo…",
+    "sampleCount": "Detected from {count, plural, one {# sample file} other {# sample files}}",
+    "droppedCount": "{kept} kept · {dropped} dropped by the evidence gate",
+    "cost": "{cost} · {tokens} tokens",
+    "lastScan": "last scan {ago}",
+    "scanFailed": "The last scan failed: {error}",
+    "notIndexed": "This repo isn't indexed yet — conventions are read from the repo index. Index or re-sync the repo first, then scan.",
+    "notIndexedTitle": "Nothing to scan yet",
+    "scopeLabel": "Scope",
+    "scopePlaceholder": "src/api/ (whole repo if empty)"
   },
   "card": {
     "confidence": "Confidence",
     "accepted": "Accepted",
     "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "acceptAsSkill": "Accept as Skill",
+    "accept": "Accept",
+    "reject": "Reject",
+    "rejected": "Rejected",
+    "occurrences": "seen in {count, plural, one {# file} other {# files}}",
+    "edit": "Edit rule",
+    "save": "Save",
+    "cancel": "Cancel",
+    "copy": "Copy snippet",
+    "copied": "Copied",
+    "alsoIn": "Also in"
+  },
+  "toolbar": {
+    "deselectAll": "Deselect all",
+    "counter": "{accepted} of {total} accepted",
+    "createSkill": "Create skill",
+    "createSkillHint": "Accept at least one convention first."
+  },
+  "modal": {
+    "title": "Create skill from conventions",
+    "updateTitle": "Update skill from conventions",
+    "banner": "Merged from <b>{count, plural, one {# accepted convention} other {# accepted conventions}}</b> in <code>{repo}</code>. Everything below is editable before you save.",
+    "updateBanner": "This repo already has <code>{name}</code>. Saving updates it to v{version} instead of creating a second skill.",
+    "showDiff": "Show what changes",
+    "hideDiff": "Hide changes",
+    "nameLabel": "Name",
+    "descriptionLabel": "Description",
+    "typeLabel": "Type",
+    "enabledLabel": "Enabled",
+    "enabledHint": "Whether this block is added to agents' prompts. Extracted skills start disabled — enable it after vetting.",
+    "bodyLabel": "Skill body",
+    "unsaved": "unsaved",
+    "tokens": "~{count} tokens",
+    "bodyPlaceholder": "The merged skill body, in markdown.",
+    "footerNote": "Saved as v1 · added to Skills Lab",
+    "footerUpdateNote": "Saved as v{version} · Skills Lab history keeps the previous body",
+    "cancel": "Cancel",
+    "create": "Create skill",
+    "update": "Update skill",
+    "saving": "Saving…",
+    "failed": "Could not save the skill.",
+    "loading": "Building the draft…"
   }
 }

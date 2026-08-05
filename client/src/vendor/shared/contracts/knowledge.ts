@@ -115,7 +115,9 @@ export type MemoryItem = z.infer<typeof MemoryItem>;
 export const SkillType = z.enum(['rubric', 'convention', 'security', 'custom']);
 export type SkillType = z.infer<typeof SkillType>;
 
-export const SkillSource = z.enum(['manual', 'imported_url', 'extracted', 'community']);
+export const SkillSource = z.enum([
+  'manual', 'imported_file', 'imported_url', 'extracted', 'community',
+]);
 export type SkillSource = z.infer<typeof SkillSource>;
 
 export const Skill = z.object({
@@ -131,6 +133,25 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  label: z.string().nullish(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+export const SkillStats = z.object({
+  used_by: z.number().int(),
+  agents: z.array(z.object({ id: z.string(), name: z.string() })),
+  pull_frequency: z.number().nullish(),
+  accept_rate: z.number().nullish(),
+  findings_30d: z.number().int(),
+  findings_by_category: z.record(z.string(), z.number().int()),
+});
+export type SkillStats = z.infer<typeof SkillStats>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),
@@ -141,17 +162,83 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+// A candidate's evidence is a VERIFIED citation: the server re-finds each
+// snippet in the file it names and recomputes the line numbers, so `path:lines`
+// is always true regardless of what the model reported.
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+export const ConventionEvidence = z.object({
+  path: z.string(),
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+  snippet: z.string(),
+});
+export type ConventionEvidence = z.infer<typeof ConventionEvidence>;
+
+// `occurrence_files` is null when the rule carried no usable probe regex —
+// "not measured", which the UI hides. It is never coerced to 0, which would
+// claim the repo was searched and the rule found nowhere.
 export const ConventionCandidate = z.object({
   id: z.string(),
   rule: z.string(),
-  evidence_path: z.string(),
-  evidence_snippet: z.string(),
+  evidence: z.array(ConventionEvidence),
+  occurrence_files: z.number().int().nullish(),
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
 
+export const ConventionScanStatus = z.enum(['never', 'running', 'done', 'failed']);
+export type ConventionScanStatus = z.infer<typeof ConventionScanStatus>;
+
+// Every nullable metric here means "not measured" and renders as an omitted
+// chip, never as a zero (same honesty rule as SkillStats).
+export const ConventionScanState = z.object({
+  status: ConventionScanStatus,
+  sampled_files: z.number().int(),
+  selected_files: z.number().int(),
+  candidate_count: z.number().int(),
+  dropped_count: z.number().int(),
+  dropped_reasons: z.record(z.string(), z.number().int()),
+  path_prefix: z.string().nullish(),
+  cost_usd: z.number().nullish(),
+  tokens_in: z.number().int().nullish(),
+  tokens_out: z.number().int().nullish(),
+  model: z.string().nullish(),
+  last_scan_at: z.string().nullish(),
+  degraded_reason: z.string().nullish(),
+  error: z.string().nullish(),
+});
+export type ConventionScanState = z.infer<typeof ConventionScanState>;
+
+export const ConventionsView = z.object({
+  state: ConventionScanState,
+  candidates: z.array(ConventionCandidate),
+});
+export type ConventionsView = z.infer<typeof ConventionsView>;
+
+// `existing_skill` + `body_patch` are set when this repo already has an
+// extracted convention skill: the merge updates it to a new version instead of
+// leaving a near-identical duplicate behind.
+export const ConventionSkillDraft = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  body: z.string(),
+  evidence_files: z.array(z.string()),
+  merged_count: z.number().int(),
+  existing_skill: z
+    .object({ id: z.string(), name: z.string(), version: z.number().int() })
+    .nullish(),
+  body_patch: z.string().nullish(),
+});
+export type ConventionSkillDraft = z.infer<typeof ConventionSkillDraft>;
+
 // ---- Agents ----
+// 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a
+// custom baseURL) — used by the CI runner for cheap models (DeepSeek/GLM/MiniMax).
 export const Provider = z.enum(['openai', 'anthropic', 'openrouter']);
 export type Provider = z.infer<typeof Provider>;
 
@@ -162,8 +249,12 @@ export type Provider = z.infer<typeof Provider>;
 export const ReviewStrategy = z.enum(['single-pass', 'map-reduce', 'auto']);
 export type ReviewStrategy = z.infer<typeof ReviewStrategy>;
 
-// CI gate policy — when a CI review should BLOCK (REQUEST_CHANGES + fail the
-// check) vs just comment. Deterministic from severities; acted on ONLY in CI.
+// CI gate policy — when a review should BLOCK (REQUEST_CHANGES + fail the check)
+// vs just comment. Deterministic from finding severities, NOT the model's verdict:
+//  - never:    never block, always comment (advisory only)
+//  - critical: block iff >=1 CRITICAL finding (default)
+//  - warning:  block iff >=1 WARNING or CRITICAL finding
+//  - any:      block iff >=1 finding of any severity
 export const CiFailOn = z.enum(['never', 'critical', 'warning', 'any']);
 export type CiFailOn = z.infer<typeof CiFailOn>;
 
@@ -191,3 +282,28 @@ export const AgentSkillLink = z.object({
   order: z.number().int(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
+
+// The immutable config snapshot captured in `agent_versions` whenever an agent's
+// config changes (everything but `enabled`). Mirrors the shape written by the
+// agents repository — provider/model/prompt/output_schema/strategy/gate/repo_intel
+// plus the ordered skill ids linked at snapshot time. Used for reproducibility
+// (eval replays a past version) and for surfacing an agent's edit history.
+export const AgentVersionConfig = z.object({
+  provider: Provider,
+  model: z.string(),
+  system_prompt: z.string(),
+  output_schema: z.unknown().nullish(),
+  strategy: ReviewStrategy,
+  ci_fail_on: CiFailOn,
+  repo_intel: z.boolean(),
+  skills: z.array(z.string()),
+});
+export type AgentVersionConfig = z.infer<typeof AgentVersionConfig>;
+
+export const AgentVersion = z.object({
+  agent_id: z.string(),
+  version: z.number().int(),
+  config: AgentVersionConfig,
+  created_at: z.string(),
+});
+export type AgentVersion = z.infer<typeof AgentVersion>;
