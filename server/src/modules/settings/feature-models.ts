@@ -29,9 +29,9 @@ export function defaultFeatureModel(id: FeatureModelId): FeatureModelChoice {
 
 /**
  * The workspace's override for `id`, or `undefined` when unset/invalid. Callers
- * that keep their own dynamic default (e.g. conventions) use this directly so
- * that default is preserved; callers with a static default use
- * `resolveFeatureModel` instead.
+ * that keep their own dynamic default use this directly so that default is
+ * preserved; callers with a static default — every one today, including
+ * conventions — use `resolveFeatureModel` instead.
  */
 export async function getFeatureModelOverride(
   container: Container,

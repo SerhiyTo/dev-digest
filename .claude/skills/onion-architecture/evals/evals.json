@@ -1,0 +1,96 @@
+{
+  "skill_name": "onion-architecture",
+  "evals": [
+    {
+      "id": 0,
+      "name": "new-endpoint-cost-per-repo",
+      "prompt": "i need a new endpoint on the api that gives me review cost per repo for the last 30 days \u2014 total spend and a breakdown by agent. there's a runs table with cost columns already i think. can you scaffold it out in server/? don't need it wired to the UI yet, just the backend bit.",
+      "expected_output": "A new slice under server/src/modules/ with routes.ts (schema only, thin handler), service.ts, repository.ts holding every Drizzle query, a Zod contract added to server/src/vendor/shared/contracts/ and mirrored to client/src/vendor/shared/, registration in modules/index.ts, and no drizzle-orm import in routes.ts or service.ts.",
+      "assertions": [
+        "Creates a repository file that is the only place importing drizzle-orm or db/schema",
+        "routes.ts contains no drizzle-orm or db/schema import",
+        "service.ts contains no drizzle-orm, fastify, req or reply reference",
+        "Declares the request/response contract with Zod in the route schema rather than calling .parse() in the handler body",
+        "Places the shared contract in server/src/vendor/shared and mentions mirroring it to client/src/vendor/shared",
+        "Registers the new module in server/src/modules/index.ts",
+        "Uses ESM .js import specifiers",
+        "Adds no inline code comments to the new files",
+        "Does not introduce a top-level domain/, application/ or infrastructure/ folder"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "refactor-fat-route",
+      "prompt": "server/src/modules/pulls/routes.ts has gotten out of hand \u2014 it's like 400 lines and does database queries and a github sync loop right inside the handlers. clean it up please",
+      "expected_output": "An extraction that follows the documented order: repository.ts first with the queries moved verbatim and workspaceId scoping preserved, then service.ts taking the repository, then the sync decisions named as domain rules. Handler reduced to parse -> one service call -> status. Behaviour unchanged.",
+      "assertions": [
+        "Extracts a repository.ts containing the Drizzle queries before extracting a service",
+        "Preserves the existing workspaceId tenancy scoping on every query",
+        "Leaves routes.ts with no drizzle-orm or db/schema import",
+        "Moves the GitHub sync loop out of the handler into a service or use case",
+        "Does not change the HTTP contract or response shapes",
+        "References the migration guidance rather than inventing a different structure",
+        "Does not attempt to refactor the other three fat-route modules in the same pass"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "placement-question-retry-rule",
+      "prompt": "quick q \u2014 where should the logic live that decides whether a failed review run gets retried? right now it's inline in the reviews service. it needs to know how many attempts happened and how long ago the last one was",
+      "expected_output": "Answer: a pure function in modules/reviews/domain.ts taking a snapshot plus the current time, called from service.ts. Explains that time must be injected (a Clock port or a now parameter) rather than read via Date.now() inside the rule, so it is testable, and notes the second-caller argument since the job runner also retries.",
+      "assertions": [
+        "Answers domain.ts (ring 1) rather than service, repository or route",
+        "Says the rule must be a pure function with no repository or framework import",
+        "Addresses how the current time reaches the rule \u2014 injected parameter or Clock port, not Date.now() inside the rule",
+        "Explains why, not just where",
+        "Does not propose creating a new top-level folder",
+        "Mentions that it becomes unit-testable without Postgres or Fastify"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "atomic-delete-across-repositories",
+      "prompt": "i need to delete a review run and all the findings attached to it in one go \u2014 if the findings delete fails the run must not disappear either. findings and runs are handled by different repository files in the reviews module. what's the cleanest way to do this here?",
+      "expected_output": "A unit-of-work / transaction port declared in ports.ts exposing a callback that receives transaction-bound stores, implemented in ring 3 over db.transaction. The service orchestrates atomicity without importing any Drizzle type. Should NOT hand a Drizzle transaction object to the service as a parameter.",
+      "assertions": [
+        "Keeps every Drizzle type out of service.ts - no PgTransaction or db handle in a use-case signature",
+        "Proposes a transaction abstraction owned by the consumer (a port/interface) rather than passing Drizzle's transaction object around",
+        "Puts the db.transaction call in ring 3, not in the service or the route",
+        "Acknowledges the objection that a repository taking a transaction parameter has lost its abstraction",
+        "Does not suggest two sequential deletes with manual compensation instead of a transaction"
+      ],
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "cross-slice-import-request",
+      "prompt": "in server/src/modules/settings i need to show which agents are configured. i was just going to do `import { AgentsService } from '../agents/service.js'` and call listAgents() \u2014 that fine?",
+      "expected_output": "No. Should refuse the cross-slice import and offer the three legal routes: shared row types via db/rows.ts, the container-held agentsRepo, or promoting the contract to ring 0. Should explain the modular-monolith reason rather than just asserting a rule.",
+      "assertions": [
+        "Answers no to the direct cross-slice import",
+        "Offers a concrete alternative that exists in this repo (db/rows.ts, container.agentsRepo, or a vendor/shared contract)",
+        "Explains why cross-slice imports are the problem, not just that they are banned",
+        "Does not propose creating a shared 'common' or 'utils' module as the fix",
+        "Notes that the boundary check would flag it"
+      ],
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "unit-test-service-without-postgres",
+      "prompt": "can you write me a unit test for the stale-run reaping in the reviews service? i don't want it spinning up a postgres container, the whole suite is getting slow",
+      "expected_output": "Should identify that ReviewService currently takes Container and news up its own repository, so it cannot be tested in isolation as written; then either propose the constructor change first or write the test against an extracted pure rule plus a fake store. Should use a hand-written fake implementing a port, not vi.mock of the repository module.",
+      "assertions": [
+        "Identifies that the current constructor(container: Container) shape is what blocks the test",
+        "Uses a hand-written fake implementing an interface rather than vi.mock of a repository module",
+        "Injects time (fixed clock or now parameter) rather than relying on real Date.now",
+        "Names the test as a fast unit test, not *.it.test.ts",
+        "Does not silently rewrite the test as an integration test with testcontainers"
+      ],
+      "files": []
+    }
+  ]
+}

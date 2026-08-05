@@ -53,6 +53,45 @@ describe('routes (no DB)', () => {
     await app.close();
   });
 
+  it('registers the skills module in the route table', async () => {
+    const app = await buildApp({ config });
+    await app.ready();
+    const routes = [
+      { method: 'GET' as const, url: '/skills' },
+      { method: 'GET' as const, url: '/skills/:id' },
+      { method: 'POST' as const, url: '/skills' },
+      { method: 'PUT' as const, url: '/skills/:id' },
+      { method: 'DELETE' as const, url: '/skills/:id' },
+      { method: 'GET' as const, url: '/skills/:id/stats' },
+      { method: 'GET' as const, url: '/skills/:id/versions' },
+      { method: 'GET' as const, url: '/skills/:id/versions/:version/diff' },
+      { method: 'POST' as const, url: '/skills/:id/versions/:version/restore' },
+    ];
+    for (const route of routes) {
+      expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
+    }
+    await app.close();
+  });
+
+  it('registers the conventions module in the route table', async () => {
+    const app = await buildApp({ config });
+    await app.ready();
+    const routes = [
+      { method: 'GET' as const, url: '/repos/:id/conventions' },
+      { method: 'POST' as const, url: '/repos/:id/conventions/scan' },
+      { method: 'POST' as const, url: '/conventions/:id/accept' },
+      { method: 'POST' as const, url: '/conventions/:id/reject' },
+      { method: 'PATCH' as const, url: '/conventions/:id' },
+      { method: 'POST' as const, url: '/repos/:id/conventions/status' },
+      { method: 'GET' as const, url: '/repos/:id/conventions/skill-draft' },
+      { method: 'POST' as const, url: '/repos/:id/conventions/skill' },
+    ];
+    for (const route of routes) {
+      expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
+    }
+    await app.close();
+  });
+
   it('returns 422 structured error on invalid body', async () => {
     const app = await buildApp({ config });
     const res = await app.inject({

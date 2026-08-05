@@ -28,6 +28,9 @@ Each module has its own CLAUDE.md (auto-loads when you work there) and README.
   small functions. Non-obvious "why" goes in the module's `specs/` or
   `INSIGHTS.md`, not inline. Leave existing comments in place unless you are
   rewriting that code — this is a rule for new code, not a cleanup task.
+  One exception: a `@deprecated` marker block is metadata, not a comment —
+  tsserver, `deprecation-audit.sh` and `pr-self-review` all read it. Write it in
+  the shape the `deprecation-policy` skill specifies, and nothing else in it.
 
 ## Commands (root)
 

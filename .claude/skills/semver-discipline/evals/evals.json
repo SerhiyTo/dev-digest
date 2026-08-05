@@ -1,0 +1,64 @@
+{
+  "skill_name": "semver-discipline",
+  "evals": [
+    {
+      "id": 0,
+      "name": "contract-field-rename",
+      "prompt": "хочу перейменувати dismissed_at на rejected_at у FindingRecord (server/src/vendor/shared/contracts/review-api.ts) — назва точніша, семантика та сама. Це ж просто ренейм, нічого не ламається?",
+      "expected_output": "MAJOR verdict. Names the client consumer that reads dismissed_at with a file path. Points out the vendored mirror in client/src/vendor/shared must move in the same commit. Offers the additive two-step alternative (keep both fields, deprecate, remove later) as the cheaper path. Provides a changelog entry naming the OLD field.",
+      "files": [],
+      "assertions": [
+        "Verdict is MAJOR — the answer rejects the user's 'nothing breaks' premise outright",
+        "Names at least one concrete client file that reads dismissed_at (client/src/lib/severity.ts, FindingCard.tsx or FindingsHoverCard.tsx)",
+        "Flags that the vendored mirror client/src/vendor/shared/contracts/review-api.ts must change in the same commit",
+        "Offers the additive two-step alternative: keep both fields, deprecate the old one, remove it in a later major",
+        "Supplies a CHANGELOG entry that names the OLD field dismissed_at, not only the new name",
+        "Notices that dismissed_at is also a database column and treats it as a separate surface"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "mixed-diff-take-the-max",
+      "prompt": "Готую реліз, у ньому три зміни в контрактах ревʼю: 1) додав grounding_mode: z.enum(['strict','loose']) у CreateReviewRequest, 2) додав detected_by: z.string().optional() у FindingRecord, 3) поміняв score: z.number().int() на z.number().int().min(0).max(100). Який бамп ставити і що писати в CHANGELOG?",
+      "expected_output": "MAJOR overall (max of the three). Required request field = MAJOR, new optional response field = MINOR, tightened validation = MAJOR. States the maximum wins. Suggests .default() for grounding_mode. CHANGELOG separates Breaking from Added.",
+      "files": [],
+      "assertions": [
+        "Overall verdict is MAJOR",
+        "Classifies each of the three changes separately with its own level",
+        "Change 1 (required grounding_mode on a request) is classified MAJOR",
+        "Change 2 (new optional detected_by on a response) is classified MINOR",
+        "Change 3 (tightened .min/.max validation) is classified MAJOR",
+        "States explicitly that the maximum level wins rather than an average or a blend",
+        "Suggests .default('strict') as the additive alternative that would drop change 1 to MINOR",
+        "CHANGELOG groups the changes by level and does not file a MAJOR change under Added"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "response-enum-widening",
+      "prompt": "додаю нове значення 'blocked' у Verdict enum у findings.ts, щоб агент міг блокувати мердж. Це ж additive change, значить minor?",
+      "expected_output": "MAJOR, because Verdict appears in responses/output: exhaustive switch/match on the union in consumers now falls through. States the direction rule (widening input MINOR, widening output MAJOR). Should look for actual consumers of Verdict in client code rather than asserting abstractly.",
+      "files": [],
+      "assertions": [
+        "Verdict is MAJOR — the answer rejects the user's 'additive means minor' premise",
+        "Explains the direction rule: widening what you accept is MINOR, widening what you emit is MAJOR",
+        "Names at least one concrete consumer that breaks (VerdictBanner/constants.ts, ReviewRunAccordion.tsx or reviewer-core/src/review/reduce.ts)",
+        "Describes the concrete failure mode — a lookup map or exhaustive match with no entry for the new value — rather than only asserting it breaks",
+        "Does not stop at the contract file: checks how Verdict is consumed downstream"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "genuinely-patch-no-inflation",
+      "prompt": "переписав внутрішній хелпер у reviewer-core, який групує findings по severity — тепер один прохід замість трьох. Поведінка і сигнатура ті самі, функція не експортується з index.ts. Який це бамп?",
+      "expected_output": "PATCH. Does NOT inflate to minor/major. Verifies reachability (not exported from the barrel) rather than taking the claim on trust, and says that verification is what makes PATCH correct. Notes no changelog entry is needed for internal changes.",
+      "files": [],
+      "assertions": [
+        "Verdict is PATCH — not inflated to MINOR or MAJOR",
+        "Verifies reachability itself (greps the symbol / checks the barrel export) instead of taking the user's 'not exported' claim on trust",
+        "States that no CHANGELOG entry is needed for an internal-only change",
+        "Answer stays short and does not manufacture hypothetical breaking scenarios to justify a higher level"
+      ]
+    }
+  ]
+}

@@ -7,6 +7,16 @@ import {
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import {
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
+  TEST_COVERAGE_RUBRIC_DESCRIPTION,
+  TEST_COVERAGE_RUBRIC_BODY,
+  FLAKY_TEST_SIGNALS_DESCRIPTION,
+  FLAKY_TEST_SIGNALS_BODY,
+  API_CONTRACT_COMPAT_DESCRIPTION,
+  API_CONTRACT_COMPAT_BODY,
+} from './seed-skills.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -18,11 +28,22 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
+ * with a few findings, the three built-in agents (General + Security +
+ * Performance), three base skills (test-coverage-rubric, flaky-test-signals,
+ * api-contract-compat) with their version-1 snapshots, and two skill-driven
+ * agents (Test Quality Reviewer, API Contract Reviewer) with those skills
+ * linked in an explicit order — all on the default
+ * openrouter/deepseek-v4-flash provider+model.
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * `mock-overuse-gate` is deliberately NOT seeded: it is imported live through
+ * the UI to demonstrate the import-and-vet flow (source stays in
+ * `docs/agent-prompts/skills/mock-overuse-gate.{md,zip}`).
+ *
+ * Also three untriaged convention candidates plus the completed scan row that
+ * produced them, so the Conventions page has content without an LLM call.
+ *
+ * Remaining course lessons populate the other tables (memory, eval, …) once
+ * their features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -175,9 +196,153 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
-  // ---- built-in agents (the three starter presets) ----
-  // Prompt bodies live in ./seed-prompts.ts (mirrored in docs/agent-prompts/*.md).
-  const seedAgents: Array<typeof t.agents.$inferInsert> = [
+  // ---- base skills (L02: reusable rubric/convention blocks) ----
+  // Bodies live in ./seed-skills.ts (mirrored in docs/agent-prompts/skills/*.md).
+  // `mock-overuse-gate` is intentionally absent — imported live through the UI.
+  const seedSkills: Array<{
+    name: string;
+    description: string;
+    type: (typeof t.skills.$inferInsert)['type'];
+    body: string;
+  }> = [
+    {
+      name: 'test-coverage-rubric',
+      description: TEST_COVERAGE_RUBRIC_DESCRIPTION,
+      type: 'rubric',
+      body: TEST_COVERAGE_RUBRIC_BODY,
+    },
+    {
+      name: 'flaky-test-signals',
+      description: FLAKY_TEST_SIGNALS_DESCRIPTION,
+      type: 'custom',
+      body: FLAKY_TEST_SIGNALS_BODY,
+    },
+    {
+      name: 'api-contract-compat',
+      description: API_CONTRACT_COMPAT_DESCRIPTION,
+      type: 'convention',
+      body: API_CONTRACT_COMPAT_BODY,
+    },
+  ];
+
+  const skillIdByName = new Map<string, string>();
+  for (const s of seedSkills) {
+    let [existing] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+    if (!existing) {
+      [existing] = await db
+        .insert(t.skills)
+        .values({
+          workspaceId,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+          source: 'manual',
+          body: s.body,
+          enabled: true,
+          version: 1,
+        })
+        .returning();
+      // Same shape as the skills module's create path (SkillsRepository.insert):
+      // the initial body snapshot is recorded as skill_versions version 1.
+      await db
+        .insert(t.skillVersions)
+        .values({ skillId: existing!.id, version: 1, body: s.body, label: null })
+        .onConflictDoNothing();
+    }
+    skillIdByName.set(s.name, existing!.id);
+  }
+
+  // ---- conventions (untriaged candidates + the scan that produced them) ----
+  // Seeded so the Conventions page and its e2e flow have deterministic content
+  // without an LLM call. Evidence cites the same files as the seeded findings.
+  const seedConventions = [
+    {
+      rule: 'Configuration is read once into a typed config object, never from process.env inline.',
+      confidence: 0.91,
+      occurrenceFiles: 7,
+      evidence: [
+        {
+          path: 'src/config.ts',
+          start_line: 10,
+          end_line: 12,
+          snippet: '  port: 3000,\n  redisUrl: x,',
+        },
+      ],
+    },
+    {
+      rule: 'Public API routes are rate limited at the middleware layer, not per handler.',
+      confidence: 0.78,
+      occurrenceFiles: null,
+      evidence: [
+        {
+          path: 'src/middleware/ratelimit.ts',
+          start_line: 25,
+          end_line: 27,
+          snippet: 'export function rateLimit(opts: RateLimitOptions) {',
+        },
+      ],
+    },
+    {
+      rule: 'Callers reach shared clients through a single exported singleton module.',
+      confidence: 0.85,
+      occurrenceFiles: 4,
+      evidence: [
+        {
+          path: 'src/api/public/index.ts',
+          start_line: 23,
+          end_line: 23,
+          snippet: "import { rateLimit } from '../../middleware/ratelimit';",
+        },
+      ],
+    },
+  ];
+
+  const [existingConvention] = await db
+    .select({ id: t.conventions.id })
+    .from(t.conventions)
+    .where(and(eq(t.conventions.workspaceId, workspaceId), eq(t.conventions.repoId, repoId)));
+  if (!existingConvention) {
+    await db.insert(t.conventions).values(
+      seedConventions.map((c) => ({
+        workspaceId,
+        repoId,
+        rule: c.rule,
+        evidence: c.evidence,
+        occurrenceFiles: c.occurrenceFiles,
+        confidence: c.confidence,
+        status: 'pending' as const,
+      })),
+    );
+    await db
+      .insert(t.conventionScans)
+      .values({
+        repoId,
+        workspaceId,
+        status: 'done',
+        pathPrefix: null,
+        sampledFiles: 84,
+        selectedFiles: seedConventions.flatMap((c) => c.evidence.map((e) => e.path)),
+        candidateCount: seedConventions.length,
+        droppedCount: 0,
+        droppedReasons: {},
+        model: 'seed',
+        finishedAt: new Date(),
+      })
+      .onConflictDoNothing();
+  }
+
+  // ---- built-in agents (the three starter presets, plus two skill-driven ones) ----
+  // Prompt bodies live in ./seed-prompts.ts / ./seed-skills.ts (mirrored in
+  // docs/agent-prompts/*.md). `skillLinks` sets agent_skills.order explicitly —
+  // that order is what the prompt assembler uses for the Skills block.
+  const seedAgents: Array<
+    typeof t.agents.$inferInsert & {
+      skillLinks?: Array<{ skillName: string; order: number }>;
+    }
+  > = [
     {
       workspaceId,
       name: 'General Reviewer',
@@ -211,13 +376,53 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description:
+        "Judges whether the diff's tests actually exercise and pin the behaviour that changed.",
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+      skillLinks: [
+        { skillName: 'test-coverage-rubric', order: 0 },
+        { skillName: 'flaky-test-signals', order: 1 },
+      ],
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description: 'Checks whether an API change stays safe for existing, unmodified callers.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+      skillLinks: [{ skillName: 'api-contract-compat', order: 0 }],
+    },
   ];
-  for (const a of seedAgents) {
-    const [existing] = await db
+  for (const { skillLinks, ...agentValues } of seedAgents) {
+    let [existing] = await db
       .select()
       .from(t.agents)
-      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
-    if (!existing) await db.insert(t.agents).values(a);
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentValues.name)));
+    if (!existing) {
+      [existing] = await db.insert(t.agents).values(agentValues).returning();
+    }
+    if (skillLinks) {
+      for (const link of skillLinks) {
+        const skillId = skillIdByName.get(link.skillName);
+        if (!skillId) continue;
+        await db
+          .insert(t.agentSkills)
+          .values({ agentId: existing!.id, skillId, order: link.order })
+          .onConflictDoNothing();
+      }
+    }
   }
 
   return { workspaceId, userId };

@@ -1,0 +1,22 @@
+{
+  "name": "Triage a seeded convention and open the create-skill modal",
+  "description": "From the app root, navigate to Skills Lab > Conventions for the seeded repo, accept one of the three seeded convention candidates, and confirm the toolbar counter updates and the create-skill modal opens pre-filled. Exercises the repo-scoped conventions route, the accept action and the skill-draft fetch. Assumes a freshly-seeded DB where acme/payments-api is the first repo (see e2e/README.md).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list so a repo is active" },
+    { "cmd": ["find", "text", "Conventions", "click"], "label": "open Conventions from the sidebar" },
+    { "cmd": ["wait", "--url", "/conventions"], "label": "conventions route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "conventions fetch settles" },
+    { "cmd": ["wait", "--text", "Conventions in"], "label": "page heading renders" },
+    { "cmd": ["wait", "--text", "Detected from 84 sample files"], "label": "seeded scan state renders" },
+    { "cmd": ["wait", "--text", "Configuration is read once into a typed config object"], "label": "seeded convention card is visible" },
+    { "cmd": ["wait", "--text", "0 of 3 accepted"], "label": "nothing is triaged yet" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Accept"], "label": "accept the first candidate" },
+    { "cmd": ["wait", "--text", "1 of 3 accepted"], "label": "counter reflects the accepted candidate" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Create skill"], "label": "open the create-skill modal" },
+    { "cmd": ["wait", "--text", "Create skill from conventions"], "label": "modal renders" },
+    { "cmd": ["wait", "--text", "payments-api-conventions"], "label": "the draft is pre-filled from the accepted convention" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Cancel"], "label": "dismiss without saving" },
+    { "cmd": ["wait", "--text", "1 of 3 accepted"], "label": "back on the list with triage intact" }
+  ]
+}

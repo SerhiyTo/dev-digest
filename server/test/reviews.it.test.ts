@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
-import { waitForPrRuns } from './helpers/runs.js';
+import { waitForPrRuns, waitForRunTrace } from './helpers/runs.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { seed } from '../src/db/seed.js';
@@ -59,6 +59,8 @@ const REVIEW_FIXTURE: Review = {
     },
   ],
 };
+
+const SKILL_BODY = '# Test coverage rubric\nList every branch added by the diff that no test exercises.';
 
 let repoSeq = 0;
 async function setupRepoAndPr(db: PgFixture['handle']['db'], workspaceId: string) {
@@ -198,6 +200,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
 
     // a run_traces document was written (single doc)
     const runId = body.runs[0].run_id;
+    await waitForRunTrace(pg.handle.db, runId);
     const trace = (await app.inject({ method: 'GET', url: `/runs/${runId}/trace` })).json();
     expect(trace.config.model).toBe('gpt-4.1');
     expect(trace.stats.grounding).toBe('1/2 passed');
@@ -215,6 +218,89 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(trace.stats.cost_usd).toBe(run!.costUsd);
     const timeline = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
     expect(timeline[0].cost_usd).toBe(run!.costUsd);
+
+    await app.close();
+  });
+
+  it('a linked enabled skill lands in the persisted trace; the same skill disabled leaves no Skills block', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const skill = (
+      await app.inject({
+        method: 'POST',
+        url: '/skills',
+        payload: {
+          name: 'test-coverage-rubric-it',
+          description: 'Flags uncovered branches.',
+          type: 'rubric',
+          body: SKILL_BODY,
+          source: 'manual',
+        },
+      })
+    ).json();
+    expect(skill.enabled).toBe(true);
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'SkillAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    const links = (
+      await app.inject({
+        method: 'POST',
+        url: `/agents/${agent.id}/skills`,
+        payload: { skill_ids: [skill.id] },
+      })
+    ).json();
+    expect(links).toHaveLength(1);
+
+    const enabledRun = (
+      await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { agentId: agent.id },
+      })
+    ).json();
+    const enabledRunId = enabledRun.runs[0].run_id;
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+    await waitForRunTrace(pg.handle.db, enabledRunId);
+    const enabledTrace = (
+      await app.inject({ method: 'GET', url: `/runs/${enabledRunId}/trace` })
+    ).json();
+    expect(enabledTrace.prompt_assembly.skills).toContain('### test-coverage-rubric-it');
+    expect(enabledTrace.prompt_assembly.skills).toContain(SKILL_BODY);
+    expect(enabledTrace.prompt_assembly.user).toContain('## Skills / rules');
+
+    await app.inject({ method: 'PUT', url: `/skills/${skill.id}`, payload: { enabled: false } });
+
+    const disabledRun = (
+      await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { agentId: agent.id },
+      })
+    ).json();
+    const disabledRunId = disabledRun.runs[0].run_id;
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 2 });
+    await waitForRunTrace(pg.handle.db, disabledRunId);
+    const disabledTrace = (
+      await app.inject({ method: 'GET', url: `/runs/${disabledRunId}/trace` })
+    ).json();
+
+    const [disabledRunRow] = await pg.handle.db
+      .select()
+      .from(t.agentRuns)
+      .where(eq(t.agentRuns.id, disabledRunId));
+    expect(disabledRunRow!.status).toBe('done');
+    expect(disabledTrace.prompt_assembly.user).toContain('## Diff to review');
+    expect(disabledTrace.prompt_assembly.user).toContain(`Review pull request #${pr.number}`);
+
+    expect(disabledTrace.prompt_assembly.skills).toBeNull();
+    expect(disabledTrace.prompt_assembly.user).not.toContain('## Skills / rules');
+    expect(disabledTrace.prompt_assembly.user).not.toContain(SKILL_BODY);
 
     await app.close();
   });

@@ -1,0 +1,79 @@
+{
+  "skill_name": "deprecation-policy",
+  "evals": [
+    {
+      "id": "eval-0-silent-delete",
+      "name": "Refuses to silently delete a cross-package export",
+      "prompt": "formatSeverity in server/src/modules/reviews/helpers.ts is ugly — it hardcodes English labels. I wrote formatSeverityLabel(finding, locale) to replace it. Delete the old one and update the call sites.",
+      "expected_output": "Greps all three packages before deciding. Because the symbol crosses a package boundary (client/ reads it), it is not deleted this commit: the replacement stays, the old function becomes a shim delegating to it, and it gets the three-line marker with since / @removeAfter version+date / @migration path. Notes the 30-day internal window and that server/package.json must move off 0.0.0 in the same commit.",
+      "assertions": [
+        "Runs a grep across server/src, client/src and reviewer-core/src before deciding anything",
+        "Does NOT delete formatSeverity in this change",
+        "Keeps exactly one implementation — the old function delegates to formatSeverityLabel rather than duplicating the body",
+        "Writes a marker containing all three of: @deprecated since <semver>, @removeAfter <semver> <YYYY-MM-DD>, @migration <path>",
+        "The @removeAfter date is at least 30 days in the future",
+        "Points out that version 0.0.0 cannot anchor a deprecation and sets a real version",
+        "Does not justify skipping the marker by citing the CLAUDE.md no-comments rule"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-1-contract-rename",
+      "name": "Renames a shared contract field additively, in both vendored copies",
+      "prompt": "In the Intent contract the field is in_scope but everything else in the codebase is camelCase. Rename it to inScope.",
+      "expected_output": "Treats the rename as a removal plus an addition on a public boundary. Both fields present, the old one optional and marked, the producer still filling it for the window. The identical edit lands in server/src/vendor/shared/contracts/brief.ts AND client/src/vendor/shared/contracts/brief.ts in the same commit. 90-day window because it is a shared contract.",
+      "assertions": [
+        "Keeps in_scope in the schema rather than replacing it",
+        "Makes in_scope optional rather than leaving it required",
+        "Edits both vendored copies (server/src/vendor/shared and client/src/vendor/shared) in the same commit",
+        "States that the producer must keep populating in_scope until removal",
+        "Uses a 90-day (or longer) window because the surface is a shared contract",
+        "Writes a complete three-line marker on the deprecated field"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-2-endpoint-sunset",
+      "name": "Retires an HTTP endpoint with Deprecation and Sunset headers",
+      "prompt": "GET /settings/secrets-status is being replaced by GET /settings/providers, which returns richer data. How do I retire the old endpoint? There is no /v1 prefix in this API.",
+      "expected_output": "Old route keeps answering and sets Deprecation (RFC 9745, @<unix> Date structured field), Sunset (RFC 8594, HTTP-date, never earlier than Deprecation) and a Link header pointing at the successor or the migration doc. Headers on the old route only. Declines to retrofit a global /v1 prefix; the replacement is named for what changed, not suffixed with a version number.",
+      "assertions": [
+        "Sets both a Deprecation and a Sunset header on the old route",
+        "Sunset is not earlier than Deprecation",
+        "Sets the headers on the old route only, not on the replacement",
+        "Explicitly declines to retrofit a global /v1 prefix, and explains why that is a bigger break than the one being fixed",
+        "Also puts the three-line JSDoc marker on the handler",
+        "Uses a 90-day (or longer) window because the consumer may be an already-deployed client"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-3-overdue-marker",
+      "name": "Handles an expired window with a live caller still on the old path",
+      "prompt": "The audit script says buildPrBrief is overdue — @removeAfter 0.7.0 2026-07-01, and today is well past that. We are on 0.8.0. But e2e/ still calls it. Just remove it, the date has passed.",
+      "expected_output": "Declines to remove while a live caller exists: the date is permission, not obligation. Offers the two legitimate moves — migrate the e2e caller (preferred), or extend @removeAfter once with the new date recorded in the migration spec. Names the fact that a marker on its third extension is a decision nobody has made.",
+      "assertions": [
+        "Does not remove the symbol while e2e/ still calls it",
+        "States that the removal date is permission to remove, not an obligation",
+        "Offers migrating the caller as the preferred option",
+        "If extending, extends once and records the new date and reason in the migration spec",
+        "Confirms the caller set with a fresh grep rather than trusting the prompt"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-4-module-local-no-ceremony",
+      "name": "Deletes a genuinely module-local helper without ceremony",
+      "prompt": "rowsToSettings in server/src/modules/settings/helpers.ts is only used by settings/routes.ts and I've inlined it. Can I just delete it, or do I need to deprecate it first?",
+      "expected_output": "Delete it. A grep across all three packages confirms module-local; the module-local tier requires no marker, no window and no version bump — just the grep pasted in the PR description. Applying the full ceremony here would be wrong.",
+      "assertions": [
+        "Answers that it can be deleted outright",
+        "Requires the cross-package grep as the evidence, and asks for it in the PR description",
+        "Does NOT add a @deprecated marker",
+        "Does NOT impose a 30- or 90-day window",
+        "Explains the module-local tier rather than only giving a yes"
+      ],
+      "files": []
+    }
+  ]
+}
