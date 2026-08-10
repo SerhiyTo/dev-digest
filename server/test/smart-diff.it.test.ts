@@ -204,28 +204,23 @@ d('Smart Diff (Testcontainers pg)', () => {
     expect(linesFor(body, 'client/src/lib/x.ts')).toEqual([30]);
   });
 
-  it('keeps the overlays when a newer summary review carries no findings', async () => {
+  it('merges every agent of a run and survives a later empty summary', async () => {
     const server = await app();
     const { pr } = await setupPr(pg.handle.db, workspaceId);
-    const review = await addReview(pg.handle.db, workspaceId, pr.id, 'review', [
+    await addReview(pg.handle.db, workspaceId, pr.id, 'review', [
       { file: 'client/src/lib/x.ts', startLine: 12, severity: 'CRITICAL' },
     ]);
-    const summary = await addReview(pg.handle.db, workspaceId, pr.id, 'summary', []);
-
-    const [reviewRow] = await pg.handle.db
-      .select({ createdAt: t.reviews.createdAt })
-      .from(t.reviews)
-      .where(eq(t.reviews.id, review.id));
-    await pg.handle.db
-      .update(t.reviews)
-      .set({ createdAt: new Date(reviewRow!.createdAt.getTime() + 60_000) })
-      .where(eq(t.reviews.id, summary.id));
+    await addReview(pg.handle.db, workspaceId, pr.id, 'review', [
+      { file: 'server/src/modules/billing/service.ts', startLine: 30, severity: 'WARNING' },
+    ]);
+    await addReview(pg.handle.db, workspaceId, pr.id, 'summary', []);
 
     const body = (
       await server.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` })
     ).json() as SmartDiff;
 
     expect(linesFor(body, 'client/src/lib/x.ts')).toEqual([12]);
+    expect(linesFor(body, 'server/src/modules/billing/service.ts')).toEqual([30]);
   });
 
   it('ignores a finding on a path absent from the diff without failing', async () => {

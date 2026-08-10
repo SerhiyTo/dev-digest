@@ -78,13 +78,16 @@ caption when overlays are active, then one `SmartDiffGroup` per non-empty role i
 `ROLE_ORDER`. Owns the `target` state and the retry-scroll effect. `patchByPath`,
 the scoped findings and the per-file grouping are each built once in `useMemo`.
 
-**Overlays are scoped to the newest review.** `latestReviewFindings` takes the
-`review_id` of the first finding in the flattened list — the newest review that
-produced any — then drops dismissed ones. Filtering in that order matters: a
-review whose findings are *all* dismissed yields empty overlays, which is exactly
-what the server does, so a badge count can never contradict `finding_lines`. The
-tab counter still shows all runs, so a one-line caption says which review the
-overlays come from.
+**Overlays show every live finding, from every agent.** `liveFindings` drops only
+the dismissed ones. An earlier version scoped them to "the newest review" by
+taking the `review_id` of the first flattened finding, which was wrong twice
+over: one Run Review writes one `reviews` row *per agent* (see the server spec),
+so scoping to one row hid other agents' findings; and a newest review with zero
+findings made `findings[0]` belong to an *older* one, so the client painted stale
+pills while the server's `finding_lines` were empty — under a caption claiming the
+overlays were current. Aggregating all live findings matches what the server now
+does and what the tab counter already showed, so the three agree by construction
+and the caption is gone rather than made true.
 
 **States:**
 
@@ -120,11 +123,17 @@ The open-state initializer became `defaultOpen ?? (…AUTO_EXPAND_MAX_LINES)` �
 reproduces the previous behaviour exactly, which is what makes the Original-order
 path provably unchanged.
 
-`defaultOpen` also needs a companion effect, because it is only read at mount and
-a target can arrive later: `target.path === file.path → setOpen(true)`, keyed on
-`nonce` so a repeat click on the same target re-fires. `open` stays uncontrolled —
-a controlled pair would force the viewer to own N booleans and would re-collapse
-a card the reviewer deliberately opened.
+`defaultOpen` needs **two** companion effects, because `useState` reads its
+initializer only at mount. One for the target (`target.path === file.path →
+setOpen(true)`, keyed on `nonce` so a repeat click re-fires), and one for
+`defaultOpen` itself — without it, a card that mounted before the reviews query
+resolved kept the old 200-line heuristic forever. The two queries genuinely race:
+land directly on `?tab=diff` and `usePrSmartDiff` mounts the cards while
+`findings` is still `[]`, so an oversized findings-bearing file rendered its badge
+and stayed shut. Both effects only ever *open*, never re-collapse, so
+`defaultOpen={false}` stays inert and a card the reviewer closed by hand reopens
+at most once, when its findings first arrive. `open` stays uncontrolled — a
+controlled pair would force the viewer to own N booleans.
 
 **A findings file with a null patch stays collapsed.** `shouldDefaultOpen` returns
 `hasPatch` for a findings-bearing file, so expanding never reveals an empty body;
@@ -161,10 +170,25 @@ from the PR *list* page: `?tab=findings&finding=<id>`, which `page.tsx` reads in
 `FindingsPanel` uses to retry-scroll to `[data-finding-id]`. Nothing new was
 built for the landing side — `FindingsHoverCard` pushes the identical URL.
 
-**The badge and the pill do different things, deliberately.** The `N findings`
-badge expands the file *in place* (you are triaging the diff); the line pill
-*leaves* for the finding's full rationale and suggestion (you are reading one
-finding). Two affordances, two intents, no modal in between.
+**Both the badge and the pill navigate.** The first version split them — the
+`N findings` badge expanded the file in place, only the line pill left for the
+finding — and review sent that back. The split looked tidy and was wrong for one
+reason: **the pill only exists on an expanded card**, so on a collapsed file the
+badge is the *only* severity affordance on screen, and it did not do the thing
+the feature exists for. A file whose patch is `null` never shows a pill at all.
+A control labelled "3 findings" that does not take you to those findings is a
+dead end dressed as a link.
+
+So the badge navigates to that file's **worst** finding — `worstFinding` picks by
+`severityRank`, the same order the pill's colour already communicates — and the
+pill navigates to the finding on its own line. Expanding stays where it always
+was: the card header.
+
+Removing the badge's old job removed its machinery with it. Nothing triggers a
+scroll-to-line inside the diff any more, so `SmartDiffViewer`'s `target` state,
+its retry-scroll effect, the `SCROLL_TO_TARGET_*` constants and `FileCard`'s
+`target` prop and force-open effect are all gone rather than left as speculative
+surface with no caller.
 
 **A line can carry several findings, so the pill links to the worst one** — the
 same one whose colour is already on screen. `findingByLine` therefore holds
@@ -178,6 +202,11 @@ because `FindingsPanel` owns the landing position.
 `onFindingOpen` is optional the whole way down (`FileCard` → `CodeLine`), so
 without it the pill renders as plain non-interactive text — which is what the
 `DiffViewer` original-order path gets, and what the test pins.
+
+Four tests hold the corrected behaviour: a badge click on a normal file, a badge
+click on a **collapsed null-patch** file (the case the split failed), a badge on a
+multi-finding file resolving to the CRITICAL rather than the SUGGESTION, and a
+pill click on a line carrying two findings.
 
 Known gap: `FindingsPanel` scrolls only to a finding present in its `shown` list,
 so a target hidden by the low-confidence toggle or an active severity filter still

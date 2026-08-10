@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SmartDiff } from '@devdigest/shared';
 import { SmartDiffService } from '../src/modules/smart-diff/service.js';
 import type {
-  LatestReviewFindings,
+  PrFindings,
   Logger,
   SmartDiffFileRow,
   SmartDiffFindingRow,
@@ -25,23 +25,21 @@ function spyLogger(): { logger: Logger; lines: LogLine[] } {
   };
 }
 
-const EMPTY_LATEST: LatestReviewFindings = {
-  reviewId: null,
-  kind: null,
-  fellBackToSummary: false,
+const EMPTY_FINDINGS: PrFindings = {
   findings: [],
+  reviewCount: 0,
   droppedSeverities: [],
 };
 
 function store(
   files: SmartDiffFileRow[],
-  latest: Partial<LatestReviewFindings> = {},
+  live: Partial<PrFindings> = {},
   pullExists = true,
 ): SmartDiffStore {
   return {
     getPullSummary: async () => (pullExists ? { id: 'pr-1' } : undefined),
     getFiles: async () => files,
-    getLatestReviewFindings: async () => ({ ...EMPTY_LATEST, ...latest }),
+    getFindings: async () => ({ ...EMPTY_FINDINGS, ...live }),
   };
 }
 
@@ -90,8 +88,6 @@ describe('SmartDiffService', () => {
   it('puts the CRITICAL-bearing file at the top of core with its lines', async () => {
     const service = new SmartDiffService({
       store: store(MIXED, {
-        reviewId: 'rev-1',
-        kind: 'review',
         findings: [
           finding('client/src/lib/y.ts', 28, 'CRITICAL'),
           finding('client/src/lib/y.ts', 52, 'WARNING', 53),
@@ -109,8 +105,6 @@ describe('SmartDiffService', () => {
     const { logger, lines } = spyLogger();
     const service = new SmartDiffService({
       store: store(MIXED, {
-        reviewId: 'rev-1',
-        kind: 'review',
         findings: [finding('server/src/gone.ts', 4, 'CRITICAL')],
       }),
       logger,
@@ -131,8 +125,6 @@ describe('SmartDiffService', () => {
     const { logger, lines } = spyLogger();
     const service = new SmartDiffService({
       store: store(MIXED, {
-        reviewId: 'rev-1',
-        kind: 'review',
         droppedSeverities: [
           { severity: 'INFO', count: 3 },
           { severity: '', count: 1 },
@@ -150,35 +142,22 @@ describe('SmartDiffService', () => {
     );
   });
 
-  it('uses the review-kind row without a fallback warning', async () => {
-    const { logger, lines } = spyLogger();
+  it('merges findings from every agent of a run, not just one review row', async () => {
     const service = new SmartDiffService({
       store: store(MIXED, {
-        reviewId: 'rev-1',
-        kind: 'review',
-        findings: [finding('client/src/lib/y.ts', 7, 'WARNING')],
+        reviewCount: 2,
+        findings: [
+          finding('client/src/lib/y.ts', 7, 'SUGGESTION'),
+          finding('server/src/modules/billing/service.ts', 90, 'CRITICAL'),
+        ],
       }),
-      logger,
     });
     const dto = await service.get('ws-1', 'pr-1');
+    const core = dto?.groups.find((g) => g.role === 'core');
 
-    expect(messages(lines, 'warn')).not.toContain(
-      'smart-diff: no review-kind review; using latest summary',
-    );
-    expect(dto?.groups.find((g) => g.role === 'core')?.files[0]?.finding_lines).toEqual([7]);
-  });
-
-  it('warns when only a summary review exists', async () => {
-    const { logger, lines } = spyLogger();
-    const service = new SmartDiffService({
-      store: store(MIXED, { reviewId: 'rev-9', kind: 'summary', fellBackToSummary: true }),
-      logger,
-    });
-    await service.get('ws-1', 'pr-1');
-
-    expect(messages(lines, 'warn')).toContain(
-      'smart-diff: no review-kind review; using latest summary',
-    );
+    expect(core?.files[0]?.path).toBe('server/src/modules/billing/service.ts');
+    expect(core?.files[0]?.finding_lines).toEqual([90]);
+    expect(core?.files[1]?.finding_lines).toEqual([7]);
   });
 
   it('returns an empty model for a PR with no files', async () => {
@@ -215,8 +194,6 @@ describe('SmartDiffService', () => {
     const { logger, lines } = spyLogger();
     const service = new SmartDiffService({
       store: store(MIXED, {
-        reviewId: 'rev-1',
-        kind: 'review',
         findings: [finding('client/src/lib/y.ts', 7, 'WARNING')],
       }),
       logger,

@@ -78,8 +78,6 @@
     "orderAriaLabel": "Diff file order",
     "orderSmart": "Smart order",
     "orderOriginal": "Original order",
-    "splitTitle": "Suggested split",
-    "latestReviewOnly": "Overlays show the latest review",
     "empty": "No changed files in this pull request.",
     "unavailable": "Smart order is unavailable — showing the original file order."
   },

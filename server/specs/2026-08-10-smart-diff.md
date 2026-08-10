@@ -56,22 +56,37 @@ so a cached Smart Diff would be stale within one page load and would need an
 invalidation hook it cannot get. Two cheap queries beat a cache that cannot be
 correct.
 
-## Which review the overlays come from
+## Which findings the overlays come from — all live ones, not "the latest review"
 
-`reviews.kind` is `'summary' | 'review'` and `desc(created_at)` does not
-distinguish them, so **the newest review row can legitimately carry zero
-findings** while a `kind: 'review'` row from a minute earlier has ten. Ordering
-by `created_at` alone would blank the overlays on any PR that got a summary last.
+The first implementation modelled this as *the latest review row*: pick the
+newest `reviews` row preferring `kind = 'review'`, then read its findings. That
+was wrong, and the way it was wrong is worth recording because the phrase "the
+findings of the last review" reads as unambiguous until you look at the writer.
 
-`getLatestReviewFindings` therefore selects the latest row with
-`kind = 'review'`, **falling back** to the latest row of any kind when none
-exists, and reports `fellBackToSummary` so the service can log it. Findings are
-then filtered `isNull(dismissed_at)`, matching the precedent in
-`src/modules/pulls/routes.ts`, and the query hits
-`findings_review_id_severity_idx` on its leading column.
+`ReviewRunExecutor` inserts **one `reviews` row per agent**, inside
+`for (const { agent, runId } of jobs)` — `insertReview` sits at
+`src/modules/reviews/run-executor.ts:240`, the loop opens at `:110`. One click of
+Run Review on a workspace with two reviewer agents therefore produces two
+`kind='review'` rows for the same `pr_id`, each with its own `run_id`. A
+`LIMIT 1` keeps one agent and silently discards every other. The failure is
+worst exactly where the feature matters most: if the agent whose row landed last
+found nothing, the file carrying another agent's CRITICAL gets
+`findingWeight = 0` and sorts *below* an untouched file.
 
-`findings` has no `pr_id` — every per-PR aggregate must join through `reviews`
-(`server/INSIGHTS.md`).
+`getFindings` therefore aggregates **every non-dismissed finding of every review
+for the PR**, joining `findings ⋈ reviews` on `pr_id`. That is not a new
+invention — it is exactly what the PR-list severity badge already does
+(`src/modules/pulls/routes.ts:151-165`: no `kind` filter, no latest filter), so
+the diff and the badge now agree by construction rather than by coincidence.
+
+Three things fall out of the correction. The `reviews.kind` distinction stops
+mattering here at all, so the summary-fallback branch and its `warn` are gone.
+The two queries collapse into one. And the client join becomes trivially
+correct, because `allFindings` in `page.tsx` is already every run's findings —
+which removes a divergence the first version had to paper over with a caption.
+
+`findings` has no `pr_id`, so the join through `reviews` is mandatory
+(`server/INSIGHTS.md`). `isNull(dismissed_at)` matches the same precedent.
 
 ## Classification is ordered rules, not globs
 
@@ -112,13 +127,28 @@ hidden. `__snapshots__/` and `.snap` are machine-written and caught earlier.
 generated and is not the code under review.
 
 The filename and directory lists are lifted from GitHub Linguist's
-`generated.rb` and `vendor.yml`, the only primary-source lists for this. Two
-deliberate divergences: `yarn.lock` is **absent** from Linguist's own table and
-is added here, and Linguist's *content*-marker rules (Go's
-`// Code generated … DO NOT EDIT.`, protobuf's banner) are **not** implemented,
-because Smart Diff never reads patch text server-side. That is a known
-over-match on hand-edited generated files, and the industry answer to it —
-per-repo `.gitattributes` overrides — is out of scope.
+`generated.rb` and `vendor.yml`, the only primary-source lists for this. Three
+deliberate divergences.
+
+`yarn.lock` is **absent** from Linguist's own table and is added here.
+
+Linguist's *content*-marker rules (Go's `// Code generated … DO NOT EDIT.`,
+protobuf's banner) are **not** implemented, because Smart Diff never reads patch
+text server-side. That is a known over-match on hand-edited generated files, and
+the industry answer to it — per-repo `.gitattributes` overrides — is out of scope.
+
+**`vendor` is deliberately NOT a boilerplate segment**, even though it is in
+Linguist's `vendor.yml`. In this repo `server/src/vendor/shared/` is the
+*canonical* home of the `@devdigest/shared` Zod contracts and
+`client/src/vendor/ui/` is the vendored design system — both hand-written, and the
+contracts are the single highest-blast-radius files in the tree. Matching the
+segment sent every one of them to `boilerplate`, which is worse than the
+collapse the role normally implies: `buildSmartDiffModel` excludes boilerplate
+from `reviewableLines` and `proposeSplits` never sees it, so a contracts-only PR
+scored `reviewable_lines = 0`, `too_big: false`, no splits, everything collapsed
+— the tool calling the riskiest possible diff generated noise. `node_modules`,
+`bower_components` and `third_party` already cover what Linguist actually means
+by vendored. A test pins `server/src/vendor/shared/contracts/brief.ts` to `core`.
 
 ## Ordering is a total order with no locale dependence
 
@@ -157,7 +187,13 @@ lockfile bump is not too big to review, and there is a test pinning exactly that
 `400` is anchored to `DEFAULT_MAP_THRESHOLD_LINES` — the point at which the
 engine itself stops reviewing a diff in one pass.
 
-`proposed_splits` buckets `core + wiring` by the first two path segments, drops
+`proposed_splits` buckets `core + wiring` by the first two **directory**
+segments — `posix.dirname` first, then slice. Slicing the raw path instead was a
+bug: at depth 2 the first two segments *are* the whole path, so `src/a.ts` and
+`src/b.ts` became two singleton buckets instead of one `src`, every bucket fell
+under `MIN_FILES_PER_SPLIT`, and a flat-layout repo got `too_big: true` with an
+empty `proposed_splits` — the one output the flag exists to justify. A root-level
+file has no directory and falls into `(root)`. It then drops
 buckets under two files, returns `[]` if fewer than two survive (a one-bucket
 "split" is not advice), keeps the top four by lines, and **folds every remaining
 file into the last kept bucket** so no file is silently lost. `name` is the real

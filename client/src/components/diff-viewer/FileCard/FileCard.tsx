@@ -32,18 +32,11 @@ function threadsForLine(ln: Line, matched: Map<string, CommentThread[]>): Commen
   return out;
 }
 
-export interface FileCardTarget {
-  path: string;
-  line: number;
-  nonce: number;
-}
-
 export function FileCard({
   file,
   commenting,
   defaultOpen,
   findings,
-  target,
   onFindingsClick,
   onFindingOpen,
 }: {
@@ -51,7 +44,6 @@ export function FileCard({
   commenting?: DiffCommentApi;
   defaultOpen?: boolean;
   findings?: FindingRecord[];
-  target?: FileCardTarget | null;
   onFindingsClick?: () => void;
   onFindingOpen?: (findingId: string) => void;
 }) {
@@ -61,14 +53,10 @@ export function FileCard({
   );
   const lines = React.useMemo(() => parsePatch(file.patch), [file.patch]);
 
-  const targetPath = target?.path;
-  const targetNonce = target?.nonce;
   React.useEffect(() => {
-    if (targetPath === file.path) setOpen(true);
-  }, [targetPath, targetNonce, file.path]);
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
 
-  // Worst finding per new-side line: it supplies both the pill colour and the
-  // id the pill links to, so the reviewer lands on the finding they clicked.
   const findingByLine = React.useMemo(() => {
     const map = new Map<number, { severity: Severity; id: string }>();
     for (const f of findings ?? []) {

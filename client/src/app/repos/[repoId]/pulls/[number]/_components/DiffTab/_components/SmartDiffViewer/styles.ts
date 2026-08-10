@@ -36,7 +36,6 @@ export const s = {
   splitTitle: { fontSize: 13, fontWeight: 600, color: "var(--warn)" } satisfies CSSProperties,
   splitBody: { fontSize: 12, color: "var(--text-secondary)" } satisfies CSSProperties,
   splitList: { margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-secondary)" } satisfies CSSProperties,
-  caption: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
   summary: { fontSize: 12, color: "var(--text-secondary)" } satisfies CSSProperties,
   unavailable: {
     padding: "10px 14px",
@@ -46,7 +45,6 @@ export const s = {
     fontSize: 12,
     color: "var(--text-muted)",
   } satisfies CSSProperties,
-  toggle: { display: "inline-flex", gap: 2 } satisfies CSSProperties,
 } as const;
 
 export function groupDotFor(role: SmartDiffRole): CSSProperties {

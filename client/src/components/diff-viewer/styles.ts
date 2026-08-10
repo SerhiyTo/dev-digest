@@ -105,9 +105,6 @@ export function chevronFor(open: boolean): CSSProperties {
   };
 }
 
-/** Row background per line kind (add/del tinted, others transparent), plus an
-    optional severity accent on the left edge. `borderLeft` is always emitted so
-    the property never toggles between present and absent across renders. */
 export function lineRowFor(kind: Line["kind"], accent?: string | null): CSSProperties {
   const background = kind === "add" ? "var(--code-add)" : kind === "del" ? "var(--code-del)" : "transparent";
   return {

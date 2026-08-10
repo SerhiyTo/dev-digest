@@ -18,7 +18,6 @@ interface DiffTabProps {
   findings: FindingRecord[];
   order: DiffOrder;
   onOrderChange: (order: DiffOrder) => void;
-  /** Jump to a finding's detail block on the Agent runs tab. */
   onFindingOpen: (findingId: string) => void;
 }
 

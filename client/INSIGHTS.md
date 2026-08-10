@@ -19,6 +19,26 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-10: when a feature has a primary action, put it on the affordance that
+  is visible in the COLLAPSED state. Smart Diff's severity pill lives on a diff
+  line, so it only exists once a card is expanded — the file-header badge is the
+  only severity control on a collapsed or null-patch file. Splitting "expand
+  here" onto the badge and "go to the finding" onto the pill hid the feature's
+  central action and the work came back from review for it (evidence:
+  client/src/components/diff-viewer/FileCard/FileCard.tsx `onFindingsClick`;
+  client/specs/2026-08-10-smart-diff.md "Both the badge and the pill navigate")
+- 2026-08-10: a `useState(propA ?? heuristic)` initializer reads the prop ONLY at
+  mount, so when the prop is derived from a second, independently-resolving query
+  the component silently keeps the heuristic forever. Two TanStack queries on one
+  page WILL race in both orders — pair every such initializer with a
+  one-directional `useEffect(() => { if (prop) setOpen(true) }, [prop])` rather
+  than assuming the data is there on first render (evidence:
+  src/components/diff-viewer/FileCard/FileCard.tsx `defaultOpen`)
+- 2026-08-10: a `getByText("1 findings")`-style assertion locks a missing ICU
+  plural into the suite. next-intl supports `{count, plural, one {#…} other {#…}}`
+  and this repo already had the singular bug in two new keys — write the plural
+  form when you add the key, not after a reviewer reads "1 findings" in the UI
+  (evidence: client/messages/en/shell.json `diffViewer.findingsBadge`)
 - 2026-08-10: `severityRank` (`src/lib/severity.ts:37`) is an INDEX into
   `SEVERITIES`, so **lower is worse** (`CRITICAL` → 0). Worst-severity-wins
   comparisons use `<`, not `>` — the inverted version silently shows the mildest

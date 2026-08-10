@@ -41,7 +41,7 @@
     "viewOnGitHub": "View on GitHub",
     "postedToGitHub": "Posts to GitHub immediately",
     "outdatedTitle": "{count} comment(s) on older revisions",
-    "findingsBadge": "{count} findings",
+    "findingsBadge": "{count, plural, one {# finding} other {# findings}}",
     "openFinding": "Open this finding's details"
   }
 }

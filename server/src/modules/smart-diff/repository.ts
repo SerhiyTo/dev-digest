@@ -1,10 +1,9 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import { KNOWN_SEVERITIES } from './constants.js';
 import type {
-  LatestReviewFindings,
-  ReviewKind,
+  PrFindings,
   SmartDiffFileRow,
   SmartDiffFindingRow,
   SmartDiffStore,
@@ -40,56 +39,37 @@ export class SmartDiffRepository implements SmartDiffStore {
     }));
   }
 
-  async getLatestReviewFindings(prId: string): Promise<LatestReviewFindings> {
-    const [reviewRow] = await this.db
-      .select({ id: t.reviews.id, kind: t.reviews.kind })
-      .from(t.reviews)
-      .where(and(eq(t.reviews.prId, prId), eq(t.reviews.kind, 'review')))
-      .orderBy(desc(t.reviews.createdAt))
-      .limit(1);
-
-    const [fallbackRow] = reviewRow
-      ? []
-      : await this.db
-          .select({ id: t.reviews.id, kind: t.reviews.kind })
-          .from(t.reviews)
-          .where(eq(t.reviews.prId, prId))
-          .orderBy(desc(t.reviews.createdAt))
-          .limit(1);
-
-    const latest = reviewRow ?? fallbackRow;
-    if (!latest) {
-      return {
-        reviewId: null,
-        kind: null,
-        fellBackToSummary: false,
-        findings: [],
-        droppedSeverities: [],
-      };
-    }
-
+  async getFindings(prId: string): Promise<PrFindings> {
     const rows = await this.db
       .select({
+        reviewId: t.findings.reviewId,
         file: t.findings.file,
         startLine: t.findings.startLine,
         endLine: t.findings.endLine,
         severity: t.findings.severity,
       })
       .from(t.findings)
-      .where(and(eq(t.findings.reviewId, latest.id), isNull(t.findings.dismissedAt)));
+      .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
+      .where(and(eq(t.reviews.prId, prId), isNull(t.findings.dismissedAt)));
 
     const findings: SmartDiffFindingRow[] = [];
     const dropped = new Map<string, number>();
+    const reviewIds = new Set<string>();
     for (const row of rows) {
-      if (KNOWN_SEVERITY_SET.has(row.severity)) findings.push(row);
+      reviewIds.add(row.reviewId);
+      const finding = {
+        file: row.file,
+        startLine: row.startLine,
+        endLine: row.endLine,
+        severity: row.severity,
+      };
+      if (KNOWN_SEVERITY_SET.has(row.severity)) findings.push(finding);
       else dropped.set(row.severity, (dropped.get(row.severity) ?? 0) + 1);
     }
 
     return {
-      reviewId: latest.id,
-      kind: latest.kind as ReviewKind,
-      fellBackToSummary: !reviewRow,
       findings,
+      reviewCount: reviewIds.size,
       droppedSeverities: [...dropped.entries()].map(([severity, count]) => ({ severity, count })),
     };
   }

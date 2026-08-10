@@ -11,20 +11,16 @@ export interface SmartDiffFindingRow {
   severity: string;
 }
 
-export type ReviewKind = 'summary' | 'review';
-
-export interface LatestReviewFindings {
-  reviewId: string | null;
-  kind: ReviewKind | null;
-  fellBackToSummary: boolean;
+export interface PrFindings {
   findings: SmartDiffFindingRow[];
+  reviewCount: number;
   droppedSeverities: { severity: string; count: number }[];
 }
 
 export interface SmartDiffStore {
   getPullSummary(workspaceId: string, prId: string): Promise<{ id: string } | undefined>;
   getFiles(prId: string): Promise<SmartDiffFileRow[]>;
-  getLatestReviewFindings(prId: string): Promise<LatestReviewFindings>;
+  getFindings(prId: string): Promise<PrFindings>;
 }
 
 export type Logger = {

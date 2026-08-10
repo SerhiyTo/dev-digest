@@ -1,1 +1,1 @@
-export { FileCard, type FileCardTarget } from "./FileCard";
+export { FileCard } from "./FileCard";

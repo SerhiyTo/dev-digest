@@ -67,9 +67,6 @@ export default function PRDetailPage() {
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
-  // Whitelisted so a hand-typed value degrades to Smart rather than rendering
-  // nothing. Written with scroll:false — flipping the order must not throw a
-  // reviewer who is deep in the diff back to the top of the page.
   const diffOrder = search.get("diffOrder") === "original" ? "original" : "smart";
   const setDiffOrder = (value: "smart" | "original") => {
     const sp = new URLSearchParams(search.toString());
@@ -79,8 +76,6 @@ export default function PRDetailPage() {
   const severity = parseSeverity(search.get("severity"));
   const setSeverity = (sev: string | null) => setParam("severity", sev);
   const targetFindingId = search.get("finding");
-  // Diff → finding detail. push (not replace) so Back returns to the diff, and
-  // scroll:false so the panel's own retry-scroll owns the landing position.
   const openFinding = (findingId: string) => {
     const sp = new URLSearchParams(search.toString());
     sp.set("tab", "findings");

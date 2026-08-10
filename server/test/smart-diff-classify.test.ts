@@ -63,6 +63,18 @@ describe('classifyPath', () => {
     }
   });
 
+  it('keeps this repo\'s canonical vendored contracts in core', () => {
+    for (const path of [
+      'server/src/vendor/shared/contracts/brief.ts',
+      'client/src/vendor/shared/contracts/review-api.ts',
+      'client/src/vendor/ui/primitives/Badge.tsx',
+    ]) {
+      expect(classifyPath(path), path).toBe('core');
+    }
+    expect(classifyPath('node_modules/left-pad/index.js')).toBe('boilerplate');
+    expect(classifyPath('third_party/zlib/z.c')).toBe('boilerplate');
+  });
+
   it('falls through to core for business logic and its tests', () => {
     for (const path of [
       'server/src/modules/billing/service.ts',
@@ -268,6 +280,28 @@ describe('buildSmartDiffModel', () => {
     expect(model.split.proposed_splits.map((s) => s.name)).toEqual(['client/src', 'server/src']);
     const split = model.split.proposed_splits.flatMap((s) => s.files);
     expect(new Set(split)).toEqual(new Set(big.map((f) => f.path)));
+  });
+
+  it('buckets a flat two-segment layout by directory, not by filename', () => {
+    const flat: SmartDiffFileRow[] = [
+      file('src/a.ts', 200, 0),
+      file('src/b.ts', 150, 0),
+      file('lib/c.ts', 300, 0),
+      file('lib/d.ts', 250, 0),
+    ];
+    const model = buildSmartDiffModel(flat, []);
+    expect(model.split.too_big).toBe(true);
+    expect(model.split.proposed_splits.map((s) => s.name)).toEqual(['lib', 'src']);
+    const covered = model.split.proposed_splits.flatMap((s) => s.files);
+    expect(new Set(covered)).toEqual(new Set(flat.map((f) => f.path)));
+  });
+
+  it('groups root-level files under a single synthetic bucket', () => {
+    const model = buildSmartDiffModel(
+      [file('a.ts', 300, 0), file('b.ts', 300, 0), file('src/c.ts', 200, 0), file('src/d.ts', 100, 0)],
+      [],
+    );
+    expect(model.split.proposed_splits.map((s) => s.name).sort()).toEqual(['(root)', 'src']);
   });
 
   it('flags too many core files even when each change is small', () => {

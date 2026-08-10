@@ -142,8 +142,9 @@ export function orderGroup(files: readonly ClassifiedFile[]): ClassifiedFile[] {
 
 function splitKeyFor(rawPath: string): string {
   const segments = rawPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '').split('/');
-  if (segments.length <= 1) return SPLIT_ROOT_KEY;
-  return segments.slice(0, SPLIT_KEY_SEGMENTS).join('/');
+  const directories = segments.slice(0, -1);
+  if (directories.length === 0) return SPLIT_ROOT_KEY;
+  return directories.slice(0, SPLIT_KEY_SEGMENTS).join('/');
 }
 
 export function proposeSplits(reviewable: readonly ClassifiedFile[]): ProposedSplit[] {

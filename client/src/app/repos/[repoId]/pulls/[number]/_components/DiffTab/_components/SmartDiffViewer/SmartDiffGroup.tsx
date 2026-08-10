@@ -3,8 +3,8 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import type { FindingRecord, PrFile, SmartDiffFile, SmartDiffRole } from "@devdigest/shared";
-import { FileCard, type DiffCommentApi, type FileCardTarget } from "@/components/diff-viewer";
-import { shouldDefaultOpen } from "./helpers";
+import { FileCard, type DiffCommentApi } from "@/components/diff-viewer";
+import { shouldDefaultOpen, worstFinding } from "./helpers";
 import { s, groupDotFor } from "./styles";
 
 const LABEL_KEY: Record<SmartDiffRole, string> = {
@@ -25,8 +25,6 @@ export function SmartDiffGroup({
   patchByPath,
   findingsByPath,
   commenting,
-  target,
-  onTarget,
   onFindingOpen,
 }: {
   role: SmartDiffRole;
@@ -34,8 +32,6 @@ export function SmartDiffGroup({
   patchByPath: Map<string, PrFile>;
   findingsByPath: Map<string, FindingRecord[]>;
   commenting?: DiffCommentApi;
-  target: FileCardTarget | null;
-  onTarget: (path: string, line: number) => void;
   onFindingOpen?: (findingId: string) => void;
 }) {
   const t = useTranslations("prReview");
@@ -52,6 +48,7 @@ export function SmartDiffGroup({
         {files.map((file) => {
           const prFile = patchByPath.get(file.path);
           const findings = findingsByPath.get(file.path) ?? [];
+          const worst = worstFinding(findings);
           return (
             <FileCard
               key={file.path}
@@ -65,8 +62,9 @@ export function SmartDiffGroup({
               }
               commenting={commenting}
               findings={findings}
-              target={target}
-              onFindingsClick={() => onTarget(file.path, file.finding_lines[0] ?? 0)}
+              onFindingsClick={
+                worst && onFindingOpen ? () => onFindingOpen(worst.id) : undefined
+              }
               onFindingOpen={onFindingOpen}
               defaultOpen={shouldDefaultOpen(
                 role,

@@ -1,6 +1,6 @@
 /* diff-viewer — unified-diff viewer with optional inline GitHub comments.
    Public surface: the DiffViewer component + the DiffCommentApi contract. */
 export { DiffViewer } from "./DiffViewer";
-export { FileCard, type FileCardTarget } from "./FileCard";
+export { FileCard } from "./FileCard";
 export { parsePatch, type Line } from "./helpers";
 export type { DiffCommentApi } from "./comments";

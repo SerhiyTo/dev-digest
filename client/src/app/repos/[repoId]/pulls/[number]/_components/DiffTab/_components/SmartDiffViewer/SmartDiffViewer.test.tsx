@@ -22,6 +22,7 @@ const CORE_PATCH = "@@ -26,3 +26,4 @@\n   const a = 1;\n+  const key = bucketKey
 
 const FILES: PrFile[] = [
   { path: "src/middleware/ratelimit.ts", additions: 84, deletions: 0, patch: CORE_PATCH },
+  { path: "src/big.ts", additions: 400, deletions: 0, patch: CORE_PATCH },
   { path: "src/config.ts", additions: 4, deletions: 0, patch: CORE_PATCH },
   { path: "package-lock.json", additions: 92, deletions: 24, patch: CORE_PATCH },
   { path: "src/assets/blob.bin", additions: 3, deletions: 0, patch: null },
@@ -38,6 +39,7 @@ const SMART_DIFF: SmartDiff = {
           deletions: 0,
           finding_lines: [27],
         },
+        { path: "src/big.ts", additions: 400, deletions: 0, finding_lines: [] },
       ],
     },
     {
@@ -134,6 +136,40 @@ describe("SmartDiffViewer", () => {
     expect(isExpanded("src/middleware/ratelimit.ts")).toBe(true);
   });
 
+  it("expands a file above the auto-expand threshold only because it has a finding", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    renderViewer("dark", [finding({ file: "src/big.ts", start_line: 27, end_line: 27 })]);
+
+    expect(isExpanded("src/big.ts")).toBe(true);
+  });
+
+  it("leaves the same oversized file collapsed when it has no findings", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    renderViewer("dark");
+
+    expect(isExpanded("src/big.ts")).toBe(false);
+  });
+
+  it("expands a file whose findings arrive after the smart-diff response", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    const { rerender } = renderViewer("dark");
+    expect(isExpanded("src/big.ts")).toBe(false);
+
+    rerender(
+      <NextIntlClientProvider locale="en" messages={{ prReview, shell }}>
+        <div data-theme="dark">
+          <SmartDiffViewer
+            prId="pr-1"
+            files={FILES}
+            findings={[finding({ file: "src/big.ts", start_line: 27, end_line: 27 })]}
+          />
+        </div>
+      </NextIntlClientProvider>,
+    );
+
+    expect(isExpanded("src/big.ts")).toBe(true);
+  });
+
   it("keeps boilerplate collapsed", () => {
     usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
     renderViewer("dark");
@@ -153,7 +189,7 @@ describe("SmartDiffViewer", () => {
     usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
     renderViewer("dark", [finding({ start_line: 9999, end_line: 9999 })]);
 
-    expect(screen.getByText("1 findings")).toBeInTheDocument();
+    expect(screen.getByText("1 finding")).toBeInTheDocument();
     expect(screen.queryByText("Warning")).not.toBeInTheDocument();
   });
 
@@ -171,8 +207,11 @@ describe("SmartDiffViewer", () => {
       finding({ file: "src/assets/blob.bin", start_line: 12, end_line: 12 }),
     ]);
 
-    expect(screen.getByText("1 findings")).toBeInTheDocument();
+    expect(screen.getByText("1 finding")).toBeInTheDocument();
     expect(isExpanded("src/assets/blob.bin")).toBe(false);
+    expect(
+      screen.queryByText("No diff text available (binary or unfetched patch)."),
+    ).not.toBeInTheDocument();
   });
 
   it("falls back to the original order on an error", () => {
@@ -186,15 +225,51 @@ describe("SmartDiffViewer", () => {
     expect(cardFor("package-lock.json")).toBeInTheDocument();
   });
 
-  it("force-opens a collapsed card when its findings badge is clicked", () => {
+  it("navigates to the finding when the file's findings badge is clicked", () => {
     usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
-    renderViewer("dark", [
-      finding({ file: "package-lock.json", start_line: 27, end_line: 27 }),
-    ]);
+    const onFindingOpen = vi.fn();
+    renderViewer(
+      "dark",
+      [finding({ id: "badge-target", file: "package-lock.json", start_line: 27 })],
+      FILES,
+      onFindingOpen,
+    );
 
-    expect(isExpanded("package-lock.json")).toBe(false);
-    fireEvent.click(screen.getByText("1 findings"));
-    expect(isExpanded("package-lock.json")).toBe(true);
+    fireEvent.click(screen.getByText("1 finding"));
+    expect(onFindingOpen).toHaveBeenCalledTimes(1);
+    expect(onFindingOpen).toHaveBeenCalledWith("badge-target");
+  });
+
+  it("navigates from a collapsed null-patch file, where the badge is the only affordance", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    const onFindingOpen = vi.fn();
+    renderViewer(
+      "dark",
+      [finding({ id: "bin-1", file: "src/assets/blob.bin", start_line: 12 })],
+      FILES,
+      onFindingOpen,
+    );
+
+    expect(isExpanded("src/assets/blob.bin")).toBe(false);
+    fireEvent.click(screen.getByText("1 finding"));
+    expect(onFindingOpen).toHaveBeenCalledWith("bin-1");
+  });
+
+  it("sends the badge to the worst finding when a file has several", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    const onFindingOpen = vi.fn();
+    renderViewer(
+      "dark",
+      [
+        finding({ id: "sugg", file: "package-lock.json", start_line: 27, severity: "SUGGESTION" }),
+        finding({ id: "crit", file: "package-lock.json", start_line: 28, severity: "CRITICAL" }),
+      ],
+      FILES,
+      onFindingOpen,
+    );
+
+    fireEvent.click(screen.getByText("2 findings"));
+    expect(onFindingOpen).toHaveBeenCalledWith("crit");
   });
 
   it("shows the split banner only when the pull request is too big", () => {
@@ -247,14 +322,23 @@ describe("SmartDiffViewer", () => {
     expect(screen.getByText("Critical")).toBeInTheDocument();
   });
 
-  it("scopes overlays to the newest review", () => {
+  it("counts findings from every agent's review, not just one", () => {
     usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
     renderViewer("dark", [
-      finding({ id: "new", review_id: "r2", start_line: 27, end_line: 27 }),
-      finding({ id: "old", review_id: "r1", start_line: 28, end_line: 28 }),
+      finding({ id: "agent-a", review_id: "r2", start_line: 27, end_line: 27 }),
+      finding({ id: "agent-b", review_id: "r1", start_line: 26, end_line: 26 }),
     ]);
 
-    expect(screen.getByText("1 findings")).toBeInTheDocument();
-    expect(screen.getByText("Overlays show the latest review")).toBeInTheDocument();
+    expect(screen.getByText("2 findings")).toBeInTheDocument();
+  });
+
+  it("excludes a dismissed finding from the badge", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    renderViewer("dark", [
+      finding({ id: "live", start_line: 27, end_line: 27 }),
+      finding({ id: "gone", start_line: 26, end_line: 26, dismissed_at: "2026-08-10T00:00:00Z" }),
+    ]);
+
+    expect(screen.getByText("1 finding")).toBeInTheDocument();
   });
 });

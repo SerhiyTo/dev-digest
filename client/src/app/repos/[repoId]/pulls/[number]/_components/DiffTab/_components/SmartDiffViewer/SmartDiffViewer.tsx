@@ -3,15 +3,10 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import type { FindingRecord, PrFile } from "@devdigest/shared";
-import { DiffViewer, type DiffCommentApi, type FileCardTarget } from "@/components/diff-viewer";
+import { DiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
 import { usePrSmartDiff } from "@/lib/hooks/smart-diff";
-import {
-  ROLE_ORDER,
-  SCROLL_TO_TARGET_STEP_MS,
-  SCROLL_TO_TARGET_TRIES,
-  USER_SCROLL_EVENTS,
-} from "./constants";
-import { filesByPath, findingsByFile, latestReviewFindings } from "./helpers";
+import { ROLE_ORDER } from "./constants";
+import { filesByPath, findingsByFile, liveFindings } from "./helpers";
 import { SmartDiffGroup } from "./SmartDiffGroup";
 import { s } from "./styles";
 
@@ -30,49 +25,10 @@ export function SmartDiffViewer({
 }) {
   const t = useTranslations("prReview");
   const { data, isError } = usePrSmartDiff(prId);
-  const [target, setTarget] = React.useState<FileCardTarget | null>(null);
-
-  const onTarget = React.useCallback((path: string, line: number) => {
-    setTarget((prev) => ({ path, line, nonce: (prev?.nonce ?? 0) + 1 }));
-  }, []);
 
   const patchByPath = React.useMemo(() => filesByPath(files), [files]);
-  const scoped = React.useMemo(() => latestReviewFindings(findings), [findings]);
-  const findingsByPath = React.useMemo(() => findingsByFile(scoped), [scoped]);
-
-  React.useEffect(() => {
-    if (!target) return;
-
-    let stopped = false;
-    let tries = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = () => {
-      stopped = true;
-    };
-
-    const jump = () => {
-      if (stopped) return;
-      const el =
-        document.querySelector(`[data-diff-line="${target.path}:${target.line}"]`) ??
-        document.querySelector(`[data-diff-file="${target.path}"]`);
-      if (el) {
-        el.scrollIntoView({ block: "center" });
-        const { top, bottom } = el.getBoundingClientRect();
-        if (top >= 0 && bottom <= window.innerHeight) return;
-      }
-      if (++tries < SCROLL_TO_TARGET_TRIES) timer = setTimeout(jump, SCROLL_TO_TARGET_STEP_MS);
-    };
-
-    const frame = requestAnimationFrame(jump);
-    for (const ev of USER_SCROLL_EVENTS) window.addEventListener(ev, stop, { passive: true });
-
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(frame);
-      if (timer) clearTimeout(timer);
-      for (const ev of USER_SCROLL_EVENTS) window.removeEventListener(ev, stop);
-    };
-  }, [target]);
+  const live = React.useMemo(() => liveFindings(findings), [findings]);
+  const findingsByPath = React.useMemo(() => findingsByFile(live), [live]);
 
   if (isError) {
     return (
@@ -120,8 +76,6 @@ export function SmartDiffViewer({
         </div>
       )}
 
-      {scoped.length > 0 && <span style={s.caption}>{t("smartDiff.latestReviewOnly")}</span>}
-
       {groups.map((group) => (
         <SmartDiffGroup
           key={group.role}
@@ -130,8 +84,6 @@ export function SmartDiffViewer({
           patchByPath={patchByPath}
           findingsByPath={findingsByPath}
           commenting={commenting}
-          target={target}
-          onTarget={onTarget}
           onFindingOpen={onFindingOpen}
         />
       ))}

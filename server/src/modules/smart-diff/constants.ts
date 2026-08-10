@@ -47,7 +47,6 @@ export const BOILERPLATE_SEGMENTS = [
   '__generated__',
   '__fixtures__',
   'generated',
-  'vendor',
   'third_party',
   'testdata',
   'assets',

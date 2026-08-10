@@ -19,23 +19,16 @@ export class SmartDiffService {
     if (!pull) return undefined;
 
     const log = this.deps.logger;
-    const [files, latest] = await Promise.all([
+    const [files, live] = await Promise.all([
       this.deps.store.getFiles(prId),
-      this.deps.store.getLatestReviewFindings(prId),
+      this.deps.store.getFindings(prId),
     ]);
 
-    const model = buildSmartDiffModel(files, latest.findings);
+    const model = buildSmartDiffModel(files, live.findings);
     const { stats } = model;
 
     if (files.length === 0) {
       log?.warn({ prId }, 'smart-diff: pull request has no files');
-    }
-
-    if (latest.fellBackToSummary) {
-      log?.warn(
-        { prId, reviewId: latest.reviewId, kind: latest.kind },
-        'smart-diff: no review-kind review; using latest summary',
-      );
     }
 
     if (stats.duplicatePaths.length > 0) {
@@ -53,7 +46,6 @@ export class SmartDiffService {
       log?.warn(
         {
           prId,
-          reviewId: latest.reviewId,
           count: stats.orphanFiles.length,
           sample: stats.orphanFiles.slice(0, MAX_LOGGED_ORPHAN_SAMPLES),
         },
@@ -61,16 +53,16 @@ export class SmartDiffService {
       );
     }
 
-    for (const dropped of latest.droppedSeverities) {
+    for (const dropped of live.droppedSeverities) {
       log?.warn(
-        { prId, reviewId: latest.reviewId, severity: dropped.severity, count: dropped.count },
+        { prId, severity: dropped.severity, count: dropped.count },
         'smart-diff: unknown finding severity ignored',
       );
     }
 
     if (stats.clampedFindings > 0) {
       log?.warn(
-        { prId, reviewId: latest.reviewId, count: stats.clampedFindings },
+        { prId, count: stats.clampedFindings },
         'smart-diff: finding line span clamped',
       );
     }
@@ -91,7 +83,7 @@ export class SmartDiffService {
     log?.info(
       {
         prId,
-        reviewId: latest.reviewId,
+        reviews: live.reviewCount,
         files: files.length,
         core: counts.core,
         wiring: counts.wiring,
