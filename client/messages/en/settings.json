@@ -121,5 +121,16 @@
     "exportFailed": "Export failed",
     "importSuccess": "Imported {agents} agents, {skills} skills",
     "importFailed": "Import failed — check the bundle JSON"
+  },
+  "intentLinks": {
+    "title": "Intent Links",
+    "body": "Domains the Intent Layer may fetch a linked page from when deriving a PR's intent.",
+    "warning": "URLs come from the pull request body, which its author controls. Only add domains you trust to hold your team's own design docs — anything fetched here is fed to the classifier as untrusted text. Linked GitHub issues do not need an entry; they go through the authenticated GitHub client.",
+    "label": "Allowed domains",
+    "hint": "Subdomains are included automatically. Leave empty to fetch nothing.",
+    "placeholder": "wiki.acme.com",
+    "add": "Add",
+    "empty": "No domains allowed — linked pages are recognised but never fetched.",
+    "remove": "Remove {domain}"
   }
 }

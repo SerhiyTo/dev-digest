@@ -19,6 +19,24 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-10: `severityRank` (`src/lib/severity.ts:37`) is an INDEX into
+  `SEVERITIES`, so **lower is worse** (`CRITICAL` → 0). Worst-severity-wins
+  comparisons use `<`, not `>` — the inverted version silently shows the mildest
+  severity on a line with several findings (evidence: src/lib/severity.ts:37-40;
+  src/components/diff-viewer/FileCard/FileCard.tsx)
+- 2026-08-10: `lineRowFor` (`src/components/diff-viewer/styles.ts`) is the only
+  styling seam that reaches every rendered diff row — it set no border property
+  at all, which is what made an optional `accent` parameter safe. Emit the
+  `borderLeft` ALWAYS (transparent when absent), never conditionally: a
+  conditional shorthand both trips the mixed-shorthand rule and shifts every row
+  3px whenever an overlay appears (evidence:
+  src/components/diff-viewer/styles.ts:79-92)
+- 2026-08-10: widening a shared component for one new caller = optional props
+  plus `??` (not `||`) on the initializer, so `undefined` reproduces the old
+  behaviour exactly and the existing caller file is not edited at all. `FileCard`
+  gained four optional props with `DiffViewer.tsx` untouched (evidence:
+  src/components/diff-viewer/FileCard/FileCard.tsx;
+  src/components/diff-viewer/DiffViewer/DiffViewer.tsx:28)
 - 2026-08-03: `react-best-practices` was written for a Vite + Tailwind + Axios + react-router stack and several of its rules CONTRADICT this module — most damagingly "Use utility classes for all styling — no inline `style={}` objects", when client/ deliberately styles via inline objects in a colocated `styles.ts`. Its Axios-interceptor, Vite `manualChunks` and `resetKeys={[location.pathname]}` rules are likewise inapplicable here. ALWAYS follow the codebase over that skill; placement/decomposition questions now go to the `frontend-ui-architecture` skill instead, and its "Code Organization" section delegates there (evidence: .claude/skills/react-best-practices/SKILL.md Tailwind + Code Organization sections; client/src/components/severity-counts/styles.ts)
 - 2026-08-03: new code here colocates first and is promoted only when a SECOND unrelated caller appears — measured default failure of a cold agent in this module is premature promotion, i.e. creating a fresh shared `src/lib/<thing>.ts` for a constant that one component uses, instead of that component's own `constants.ts`. The other measured failure is naming a hookless function `use*`; if it calls no hook it is a plain function (`getSorted`, not `useSorted`) (evidence: .claude/skills/frontend-ui-architecture-workspace/iteration-1/eval-2-constants-placement/without_skill/outputs/answer.md routes model ids straight to a new src/lib/models.ts; existing good shape client/src/app/agents/_components/AgentCard/constants.ts)
 - 2026-08-02: the app scrolls a `<main>` element, NOT the window — `window.scrollY` / `document.documentElement.scrollTop` stay 0 no matter how far down you are, so they are useless for asserting or debugging scroll position; read `document.querySelector("main").scrollTop` instead. `el.scrollIntoView()` works fine (it walks scrollable ancestors); it was the *diagnostics* that lied and sent two debugging passes down the wrong path (evidence: client/src/components/app-shell/; verified in-page — main.scrollTop 1461 while window.scrollY 0)
@@ -29,6 +47,15 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-10: `SeverityBadge`'s `compact` prop renders the icon WITHOUT its
+  label, so colour + glyph become the only signal — it contradicts the
+  component's own "never color alone (WCAG AA)" comment. Use the full variant
+  wherever the badge is the sole carrier of severity (evidence:
+  src/vendor/ui/primitives/Badge.tsx:50-80)
+- 2026-08-10: `SectionLabel` accepts only `children`, `icon` and `right` — no
+  `title` prop, so a tooltip needs a plain wrapping element (evidence:
+  src/vendor/ui/primitives/SectionLabel.tsx; tsc error TS2322 on `title`)
+- 2026-08-09: `IconName` is a CLOSED set hand-curated in `src/vendor/ui/icons.tsx`, not the whole lucide catalogue — plausible names fail. `Radar` and `Crosshair` are absent while `Target`, `Workflow` and `Boxes` are present, and because `icon` props are typed the miss surfaces as a typecheck error rather than a missing glyph. Grep the icon module for the name BEFORE writing the component, not after (evidence: `grep -oE "\b(Target|Radar|Crosshair)\b" client/src/vendor/ui/icons.tsx` returns only Target; client/.../OverviewTab/_components/BlastRadiusCard uses Workflow)
 - 2026-08-05: RTL's `getByDisplayValue` runs the value through the default TextMatch normaliser (trim + collapse runs of whitespace), so a MULTI-LINE textarea can never be matched against its raw value — `getByDisplayValue("# Title\n\nBody\n")` always fails even though `.value` is exactly that. Address multi-line editors by `getByPlaceholderText(...)` (or a role query) and assert on `.value` directly; `getByDisplayValue` stays fine for single-line inputs (evidence: client/src/app/repos/[repoId]/conventions/_components/ConventionsView/_components/CreateSkillFromConventionsModal/CreateSkillFromConventionsModal.test.tsx bodyEditor())
 - 2026-08-04: `client/next.config.mjs` carries `webpack: (config) => { config.resolve.extensionAlias = { ".js": [".ts",".tsx",".js"] } }` and it is load-bearing — do not delete it as dead config. `src/vendor/shared/index.ts` is a byte-identical mirror of the server's NodeNext copy, so it writes `export * from './contracts/findings.js'` for a file that is actually `findings.ts`. tsc (`moduleResolution: "Bundler"`) and vitest both resolve `.js`→`.ts`; Next's webpack does NOT, and fails with `Module not found: Can't resolve './contracts/findings.js'`. The alias is the right fix rather than editing the barrel, because the mirror must not diverge from the canonical server copy (evidence: client/next.config.mjs webpack hook; client/src/vendor/shared/index.ts:17; client/tsconfig.json moduleResolution)
 - 2026-08-02: the shorthand trap nests — `borderColor`/`borderWidth`/`borderStyle` LOOK like longhands but are themselves shorthands for the four sides, so `borderColor` + `borderLeftColor` still warns (an in-repo comment claimed that pairing was the fix, and it was wrong). Rules of thumb that hold: keep every border declaration at ONE level — either all four side-shorthands (`borderTop/Right/Bottom/Left`, which never conflict with each other) or all per-side longhands (`borderTopColor`, `borderLeftWidth`, …); NEVER `border` or `borderColor` alongside a side. Scan for regressions by looking at innermost style objects only — a `styles.ts` barrel merges sibling entries and produces pure false positives (evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/FindingCard/styles.ts:5 card(); client/src/vendor/ui/kit/Tabs.tsx:28)
@@ -39,6 +66,8 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-10: L03 Smart Diff — role-grouped reviewer-ordered diff in the Files changed tab behind a `?diffOrder=` toggle, per-file findings badges and per-line severity pills joined client-side from `usePrReviews`, boilerplate collapsed, retry-scroll to a target line; widened the shared diff-viewer with four optional props leaving `DiffViewer` untouched; 12 RTL cases; spec client/specs/2026-08-10-smart-diff.md.
+- 2026-08-09: L03 Intent Layer — INTENT card on the PR Overview tab (statement, in/out of scope, risk chips, evidence-derived confidence, stale badge, compute/recompute), a BLAST RADIUS placeholder card, and `lib/hooks/intent.ts` treating a 404 as the empty state; spec client/specs/2026-08-09-intent-layer.md.
 - 2026-08-05: L02 conventions extractor — `/repos/:repoId/conventions` page (evidence-backed candidate cards, accept/reject/inline edit, scope-prefix re-scan, create-skill modal with update-to-vN mode), promoted the ConfigTab body editor to `src/components/markdown-editor` behind a `labels` prop and `relativeTime` to `src/lib/time.ts`; spec client/specs/2026-08-05-conventions.md.
 - 2026-08-04: L02 skills — `/skills` list + 5-tab editor (Config/Preview/Evals/Stats/Versions), file+zip import drawer with preview-before-network, and the agent editor's Skills tab (link + native HTML5 reorder); spec client/specs/2026-08-04-skills.md.
 - 2026-08-03: researched ~60 sources and created the `frontend-ui-architecture` skill (code placement + decomposition), splitting that concern out of react-best-practices; benchmarked 100% vs 90% pass rate against a no-skill baseline on 3 eval prompts.

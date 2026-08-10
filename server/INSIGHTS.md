@@ -11,12 +11,46 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-08-09: do NOT prove fence-escaping by asserting an absolute count of `</untrusted>` in a rendered prompt — the template's own SECURITY paragraph contains a literal `<untrusted>…</untrusted>` as prose, so the baseline is N+1 fences, not N, and the assertion fails on a perfectly safe render. Compare against a BENIGN render instead (`closers(hostile) === closers(benign)`), which states the property you actually care about: the attacker added no closer. Count opens with `<untrusted source="` to sidestep the prose entirely (evidence: server/test/intent-prompt.test.ts closers() helper; the prose fence at server/src/prompts/intent.classify.md SECURITY block)
 - 2026-08-05: `pnpm db:generate` becomes INTERACTIVE whenever one table both drops and adds columns in the same diff — drizzle-kit asks "Is <col> created or renamed from another column?" per new column and there is no `--yes`/`--force` for it. It cannot be automated: piping newlines does nothing (it reads a raw TTY) and `printf '\n\n' | script -q /dev/null pnpm db:generate` HANGS indefinitely. ALWAYS split such a change into two runs — first edit the schema to only ADD the new columns and generate, then remove the old ones and generate again — which yields two unambiguous migrations and zero prompts (evidence: conventions reshape produced 0013_perpetual_invisible_woman.sql additions + 0014_daily_hitman.sql drops; server/src/db/schema/knowledge.ts conventions)
 - 2026-08-04: in integration tests NEVER read `run_traces` after only `waitForPrRuns` — that returns as soon as `agent_runs.status` is terminal, which `RunExecutor` sets BEFORE it persists the trace, so `GET /runs/:id/trace` intermittently 404s and `prompt_assembly` comes back `undefined`. It is a genuine flake, not a slow machine: reproduced at ~1 in 4 full-suite runs while passing 3/3 in isolation. ALWAYS `await waitForRunTrace(db, runId)` (polls `run_traces`, throws on timeout) before touching the trace (evidence: server/test/helpers/runs.ts waitForRunTrace; server/src/modules/reviews/run-executor.ts status update precedes saveRunTrace; call sites server/test/reviews.it.test.ts:203,269,288)
 - 2026-08-04: asserting a NEGATIVE on a persisted trace can pass vacuously — when a run throws, the catch path persists `prompt_assembly: { skills: null, user: '' }`, under which "skills is null" and "the prompt lacks `## Skills / rules`" are both trivially true even though the feature never ran. ALWAYS pin the run to `status === 'done'` and assert the prompt has real content before asserting what it lacks (evidence: server/src/modules/reviews/run-executor.ts failure-path trace; guard assertions server/test/reviews.it.test.ts:297-299)
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-10: `ports.ts` may NOT import a sibling slice file other than
+  `domain|ports|constants.ts` — dependency-cruiser `ring-1-domain-stays-pure` is
+  `severity: error` and allows only `vendor/shared`, those three names, and
+  `zod`. Row/DTO shapes therefore belong IN `ports.ts` with the pure logic file
+  importing them, not the other way round (evidence:
+  .claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs:53-67;
+  server/src/modules/smart-diff/ports.ts)
+- 2026-08-10: the current tree reports **7 pre-existing depcruise errors** (in
+  `modules/reviews/helpers.ts`, `modules/conventions/service.ts`,
+  `modules/skills/stats.ts`), not the 0 the onion-architecture README claims —
+  so grep your own paths out of the report rather than expecting a clean exit
+  (evidence: `npx depcruise --config .dc.cjs src` → "43 dependency violations
+  (7 errors, 36 warnings)")
+- 2026-08-10: ALL server tests live flat in `server/test/<topic>.test.ts` even
+  though `vitest.config.ts` also globs `src/**/*.test.ts` — there is not one
+  colocated test under `src/modules/`. Put a new unit test in `test/`, named
+  after the slice (evidence: server/test/intent-confidence.test.ts,
+  server/test/reviews-helpers.test.ts; `ls src/modules/*/*.test.ts` → no matches)
+- 2026-08-10: `routes-smoke.test.ts` has NO single global route list to append
+  to — it is one `it('registers the <module> module in the route table')` block
+  per module, and `/pulls/:id/intent` is asserted nowhere. Add a sibling block
+  (evidence: server/test/routes-smoke.test.ts:56-93)
+- 2026-08-10: a DTO that must satisfy a contract should `safeParse` it in the
+  service and throw `AppError('internal_error', …, 500)` — NEVER bare `.parse()`,
+  because `app.setErrorHandler` maps any ZodError to **422** and would blame the
+  client for a server-side breach. A `response:` schema is also wrong here:
+  `fastify-type-provider-zod` strips unknown keys, turning a future additive
+  field into silent data loss (evidence:
+  server/src/modules/smart-diff/service.ts; server/src/app.ts:137-155)
+- 2026-08-09: **correction to the "Go through `Container.featureModel`" entry below — do NOT do that.** Putting a cross-slice helper on the `Container` LOOKS like the sanctioned "container-held" sharing pattern and can quietly ADD an import cycle. `resolveFeatureModel` already imported `Container` to reach `container.db`, so `Container.featureModel()` closed `settings/feature-models → platform/container → settings/feature-models` — five `platform → modules` edges and four cycles, up from four and three. The fix that actually removes debt: declare the port in `vendor/shared/adapters.ts`, implement it under `src/adapters/`, and have the settings module DELEGATE to that implementation so there is still one. Check with depcruise BEFORE assuming a `warn` is the cheap option — net warnings went 38 → 40 → 36 across the two attempts (evidence: server/src/adapters/settings/feature-models.ts; port at server/src/vendor/shared/adapters.ts FeatureModelResolver; consumer server/src/modules/intent/routes.ts)
+- 2026-08-09: type a jsonb column's `$type<>` with the literal union, not `string`, when its values mirror a contract enum. `IntentEvidenceRow.kind: string` forced `row.evidence as Intent['evidence']` at TWO mappers, laundering unvalidated DB data into a 9-value enum. Declaring the union in `db/schema/*.ts` (schema files must not import `vendor/shared`) makes the cast unnecessary AND makes drift a compile error — widening the contract enum immediately failed the assignment in `intent/ports.ts`, which is exactly the alarm you want (evidence: server/src/db/schema/reviews.ts IntentEvidenceKindRow; consumers server/src/modules/reviews/repository/pull.repo.ts getIntent and server/src/modules/intent/helpers.ts)
+- 2026-08-09: `renderPrompt`/`renderTemplate` do a RAW `String.replace` and do NOT escape the interpolated value — unlike `reviewer-core`'s `wrapUntrusted`, which strips `</untrusted>`. So a `src/prompts/*.md` template that fences untrusted input is only as safe as the caller: a PR body containing a literal `</untrusted>` closes the fence and everything after it reads as trusted instructions. ALWAYS escape `</untrusted>` → `<\/untrusted>` in the module before interpolating. Two saving graces that are easy to misread as "it's handled": the replacer is a FUNCTION, so `$&` in the value is not expanded, and `String.replace` never re-scans replaced text, so a `{{placeholder}}` inside untrusted data is inert (evidence: server/src/platform/prompts.ts:34; the fix `escapeFence` at server/src/modules/intent/classifier.ts; test server/test/intent-prompt.test.ts "escapes a forged closer")
+- 2026-08-09: a NEW slice must NOT import `modules/settings/feature-models.ts` to pick its model — the onion dependency-cruiser ruleset scores `no-cross-slice-imports` as `error`, and `conventions/service.ts` doing exactly that is a GRANDFATHERED violation, so copying the nearest working example introduces a hard failure. Go through `Container.featureModel(workspaceId, id)` instead ("a container-held repository" is the sanctioned sharing mechanism; `platform → modules` is an accepted `warn`). Same trap one level down: a new `service.ts` must take its ports in the constructor, never `Container`, even though every existing service takes `Container` (evidence: .claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs no-cross-slice-imports + LEGACY.crossSlice; server/src/platform/container.ts featureModel; ports in server/src/modules/intent/ports.ts wired at routes.ts)
 - 2026-08-05: `JobRunner.enqueue` records a job failure and then RETHROWS into the `done` promise it returns — and NO caller awaited `done`, so a failing job was an unhandled rejection that KILLED the API process. It went unnoticed because only a handler that actually fails reaches it, and before conventions no handler ever came near the 120s timeout. FIXED at the source: `enqueue` now attaches `done.catch(() => {})` before returning, which marks the rejection observed without swallowing it — `.catch()` returns a new promise, so a caller that awaits `done` still sees the error. Do NOT remove that line; deleting it reproduces the crash immediately (evidence: server/src/platform/jobs.ts:113 and the regression suite server/test/jobs.it.test.ts, whose first case fails with "Unhandled Rejection" without it)
 - 2026-08-05: do NOT put a paid LLM pipeline behind `JobRunner`. Its 120s handler timeout is GLOBAL (no per-kind override) and shorter than a real multi-call scan, and its retry re-runs the whole pipeline at full token cost. Its other offering, a `jobs` row, is redundant whenever the feature already owns a status table the UI polls. The conventions scan moved to a plain fire-and-forget background task — route awaits a `beginScan` that writes the 'running' row (so a 202 caller never polls a stale state), then starts the work unawaited — and only then could a scan actually complete (evidence: every real scan failed with "Operation timed out after 120000ms"; server/src/modules/conventions/routes.ts scan route, migration 0015 drops the now-meaningless convention_scans.job_id)
 - 2026-08-05: a background task dies with its process, so ANY self-reported status table needs a boot-time reaper or rows sit at 'running' forever and the UI polls them indefinitely. Register it at plugin load and AWAIT it before the server accepts requests — a fresh process has no scans of its own yet, so every 'running' row at that moment is genuinely orphaned (evidence: server/src/modules/conventions/routes.ts reapStaleScans at plugin load, mirroring the agent_runs reaper in server/src/app.ts:81)
@@ -29,6 +63,19 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-10: `reviewer-core/src/grounding.ts:16` EXEMPTS `secret_leak |
+  lethal_trifecta | phantom | hook` findings from line-intersection grounding —
+  they are kept when the *file* is in the diff, so their `start_line` can point
+  at a line no hunk contains. Any feature that joins findings onto diff lines
+  must treat an orphan line as normal, not as corruption (evidence:
+  reviewer-core/src/grounding.ts:16)
+- 2026-08-10: `reviews.kind` is `'summary' | 'review'` and `desc(created_at)`
+  does not distinguish them, so "the latest review" can be a summary carrying
+  zero findings while a `kind='review'` row seconds earlier has ten. Prefer
+  `eq(kind,'review')` with an any-kind fallback for any per-PR finding rollup
+  (evidence: server/src/db/schema/reviews.ts:29;
+  server/src/modules/smart-diff/repository.ts)
+- 2026-08-09: a pre-flight DNS check followed by an ordinary `fetch` does NOT stop SSRF — the name can resolve to something else between the check and the connect (DNS rebinding). Node's `http`/`https` `request` accepts a `lookup` option; passing a resolver that filters private/loopback/link-local/CGNAT/multicast/IPv4-mapped addresses means the socket connects only to an address you approved. Undici's `fetch` gives no equivalent hook, which is why this adapter uses `https.request` directly. Redirects must be followed MANUALLY with the allowlist re-checked per hop, or an allowlisted host 302s straight to an internal one (evidence: server/src/adapters/http/fetcher.ts guardedLookup + fetchGuarded; 38 guard tests in server/test/intent-ssrf.test.ts)
 - 2026-07-29: Claude 5-family models (claude-sonnet-5, claude-opus-5, …) reject `temperature` with 400 "temperature is deprecated for this model" — ALWAYS route Anthropic tuning params through `anthropicTuningParams()`, which omits temperature when the major version ≥ 5; mirrors the existing `tuningParams()` pattern for GPT-5/o-series in openai.ts (evidence: server/src/adapters/llm/anthropic.ts anthropicTuningParams; test server/test/adapters.test.ts "anthropic tuning params")
 
 ## Recurring Errors & Fixes
@@ -36,6 +83,9 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-10: L03 Smart Diff — `smart-diff/` module and `GET /pulls/:id/smart-diff`, a deterministic path classifier (core/wiring/boilerplate, Linguist-derived lists, no glob dep, no LLM call) merged with the latest `kind='review'` findings; zero contract edits, zero migrations, the DTO `safeParse`s itself; 47 tests incl. an 8-case Testcontainers lane; spec server/specs/2026-08-10-smart-diff.md.
+- 2026-08-09: L03 Intent Layer (part 2) — reversed the no-network decision: linked GitHub issues via the authenticated client, other links via an SSRF-guarded fetcher behind an `intent_link_domains` allowlist (empty = fetch nothing); two-tier evidence so a fetched reference outscores a merely-referenced one; fixed the import cycle and the jsonb cast the reviewers found.
+- 2026-08-09: L03 Intent Layer — `intent/` module (ports-not-Container, local-only sources incl. plan/spec files read from the clone behind a path-traversal guard, cheap `review_intent` model, evidence-derived confidence), migration 0016, `intent.classify.md`, the `## Derived intent` slot in reviewer-core and its read-only wiring in `run-executor`; spec server/specs/2026-08-09-intent-layer.md.
 - 2026-08-05: L02 conventions extractor — `conventions/` module (two-step LLM scan behind a snippet-verifying grounding gate, triage, re-scan carry-over, merge into an `extracted` skill), migrations 0013/0014, `conventions.select.md` + `conventions.extract.md` as the first `renderPrompt` callers, seeded 3 candidates + a scan row; spec server/specs/2026-08-05-conventions.md.
 - 2026-08-04: L02 skills — `skills/` module (CRUD, versioning, unified diff, restore, stats), `skill_versions.label` migration 0012, and the `renderSkillBlocks` → `run-executor` wiring that puts skill bodies into the prompt; seeded 3 skills + 2 reviewer agents with ordered links; spec server/specs/2026-08-04-skills.md.
 - 2026-08-01: added `PrMeta.findings_by_severity` to the PR-list endpoint (COUNT…GROUP BY over findings⋈reviews, dismissed excluded, NULL when unreviewed), wired the previously-dead `rollupSeverities` helper, migration 0011 index; spec server/specs/2026-08-01-findings-by-severity.md.

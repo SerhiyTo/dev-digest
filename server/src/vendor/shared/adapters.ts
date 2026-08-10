@@ -4,6 +4,8 @@ import type {
   PrDetail,
   IssueMeta,
   PrReviewComment,
+  FeatureModelChoice,
+  FeatureModelId,
 } from './contracts/platform.js';
 
 /**
@@ -277,6 +279,10 @@ export type SecretKey =
   | 'GITHUB_TOKEN'
   | 'DATABASE_URL'
   | (string & {});
+
+export interface FeatureModelResolver {
+  resolve(workspaceId: string, id: FeatureModelId): Promise<FeatureModelChoice>;
+}
 
 export interface SecretsProvider {
   get(key: SecretKey): Promise<string | undefined>;

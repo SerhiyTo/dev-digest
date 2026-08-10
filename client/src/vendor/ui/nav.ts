@@ -46,6 +46,7 @@ export const SETTINGS_ITEM: NavItemDef = {
 export const SETTINGS_SECTIONS = [
   { key: "api-keys", label: "API Keys" },
   { key: "models", label: "Feature Models" },
+  { key: "intent-links", label: "Intent Links" },
 ] as const;
 
 /** Keyboard shortcut registry. Wiring is finalized by A6. */

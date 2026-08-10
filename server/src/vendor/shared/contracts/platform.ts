@@ -50,10 +50,10 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
   },
   {
     id: 'review_intent',
-    label: 'PR Review · Intent',
-    description: 'Derives a PR’s intent and scope before review.',
+    label: 'Intent Layer',
+    description: 'Derives a PR’s intent, scope and risk areas before review.',
     defaultProvider: 'openai',
-    defaultModel: 'gpt-4.1',
+    defaultModel: 'gpt-5.4-nano',
   },
   {
     id: 'risk_brief',
@@ -92,6 +92,7 @@ export const SettingsKnown = z.object({
   automatic_reviews: z.boolean().default(false),
   /** Per-feature model overrides (provider+model), keyed by FeatureModelId. */
   feature_models: z.record(FeatureModelId, FeatureModelChoice).default({}),
+  intent_link_domains: z.array(z.string()).default([]),
 });
 export type SettingsKnown = z.infer<typeof SettingsKnown>;
 

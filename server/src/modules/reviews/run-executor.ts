@@ -6,7 +6,7 @@ import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
-import { taskLine, renderSkillBlocks } from './helpers.js';
+import { taskLine, renderSkillBlocks, renderIntentBlock } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
@@ -105,6 +105,8 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    const intentBlock = await this.loadIntentBlock(pull.id, runLog);
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -112,7 +114,16 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(
+          workspaceId,
+          pull,
+          repo,
+          diff,
+          agent,
+          runId,
+          runLog,
+          intentBlock,
+        );
         logger?.info(
           {
             runId,
@@ -144,6 +155,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    intentBlock?: string,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -212,6 +224,7 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        ...(intentBlock ? { intent: intentBlock } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -325,6 +338,27 @@ export class ReviewRunExecutor {
     }
   }
 
+  private async loadIntentBlock(prId: string, runLog: RunLogger): Promise<string | undefined> {
+    try {
+      const intent = await runLog.step('Loading derived intent', () => this.repo.getIntent(prId), {
+        kind: 'tool',
+      });
+      if (!intent) {
+        runLog.info('No derived intent — compute it on the PR Overview tab');
+        return undefined;
+      }
+      const block = renderIntentBlock(intent);
+      if (block.length === 0) return undefined;
+
+      const confidence = intent.confidence == null ? 'unknown' : intent.confidence.toFixed(2);
+      runLog.info(`Derived intent attached (confidence ${confidence})`);
+      return block;
+    } catch (err) {
+      runLog.info(`derived intent: unavailable — ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
   /**
    * Build a compact "Callers of changed symbols" digest for the prompt.
    *
@@ -434,7 +468,14 @@ export class ReviewRunExecutor {
         source: 'local',
       },
       stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, cost_usd: null, findings: 0, grounding },
-      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
+      prompt_assembly: {
+        system: agent.systemPrompt,
+        skills: null,
+        memory: null,
+        specs: null,
+        intent: null,
+        user: '',
+      },
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],

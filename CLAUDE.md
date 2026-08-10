@@ -41,7 +41,13 @@ Each module has its own CLAUDE.md (auto-loads when you work there) and README.
 
 - `README.md` — architecture, review-flow diagram, course roadmap
 - `TESTING.md` — cross-module testing strategy
-- `docs/` — cross-cutting docs (`docs/agent-prompts/` — prompt templates)
+- `docs/` — cross-cutting docs (`docs/agent-prompts/` — prompt templates for the
+  product's reviewer agents, not for Claude Code subagents)
+- `docs/plans/` — Development Plans written by the `planner` subagent,
+  `YYYY-MM-DD-<feature>.md`; the `implementer` subagent executes them and the
+  `plan-verifier` subagent checks the result against them
+- `.claude/agents/` — Claude Code subagents (catalog in its README);
+  `.claude/skills/` — project skills (catalog in its README)
 - `<module>/docs/`, `<module>/specs/`, `<module>/INSIGHTS.md` — per-module;
   before implementing a feature, check the module's `specs/` for its spec.
   Read the module's `INSIGHTS.md` before working in it; at wrap-up run the

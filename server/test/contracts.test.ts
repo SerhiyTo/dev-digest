@@ -3,6 +3,7 @@ import {
   Review,
   Finding,
   Intent,
+  PromptAssembly,
   BlastRadius,
   Risks,
   PrHistory,
@@ -221,5 +222,39 @@ describe('platform DTOs', () => {
         commits: [],
       }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * `pr_intent` rows and `run_traces.trace` documents written before the Intent
+ * Layer shipped must keep parsing: the trace jsonb is frozen, so a historical
+ * document genuinely lacks these keys.
+ */
+describe('Intent Layer — backward compatibility', () => {
+  it('parses a legacy Intent that predates risk_areas / evidence / confidence', () => {
+    const legacy = Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: [] });
+    expect(legacy.risk_areas).toEqual([]);
+    expect(legacy.evidence).toEqual([]);
+    expect(legacy.confidence).toBeUndefined();
+  });
+
+  it('leaves confidence unknown rather than defaulting it to zero', () => {
+    expect(Intent.parse({ intent: 'x', in_scope: [], out_of_scope: [] }).confidence).not.toBe(0);
+  });
+
+  it('rejects a confidence outside 0..1', () => {
+    const parsed = Intent.safeParse({
+      intent: 'x',
+      in_scope: [],
+      out_of_scope: [],
+      confidence: 1.4,
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('parses a legacy PromptAssembly with no intent key', () => {
+    const parsed = PromptAssembly.safeParse({ system: 's', user: 'u' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.intent).toBeUndefined();
   });
 });

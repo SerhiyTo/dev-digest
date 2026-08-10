@@ -3,6 +3,9 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
+import { SEV, SeverityBadge } from "@devdigest/ui";
+import type { Severity } from "@devdigest/shared";
 import { commentTargetFor, type CommentThread, type DiffCommentApi, cs } from "../comments";
 import { type Line } from "../helpers";
 import { s, lineRowFor, lineSignFor } from "../styles";
@@ -14,12 +17,19 @@ export function CodeLine({
   path,
   threads,
   commenting,
+  severity,
+  anchor,
+  onSeverityClick,
 }: {
   ln: Line;
   path: string;
   threads: CommentThread[];
   commenting?: DiffCommentApi;
+  severity?: Severity | null;
+  anchor?: string | null;
+  onSeverityClick?: () => void;
 }) {
+  const t = useTranslations("shell");
   const [hover, setHover] = React.useState(false);
   const [composing, setComposing] = React.useState(false);
 
@@ -41,7 +51,10 @@ export function CodeLine({
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div style={lineRowFor(ln.kind)}>
+      <div
+        style={lineRowFor(ln.kind, severity ? SEV[severity].c : null)}
+        data-diff-line={anchor ?? undefined}
+      >
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>
           {showAdd && target && (
             <button
@@ -62,6 +75,26 @@ export function CodeLine({
         <span className="mono" style={s.lineText}>
           {ln.text || " "}
         </span>
+        {severity && (
+          <span style={s.severityPill}>
+            {onSeverityClick ? (
+              <button
+                type="button"
+                title={t("diffViewer.openFinding")}
+                aria-label={t("diffViewer.openFinding")}
+                style={s.severityButton}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSeverityClick();
+                }}
+              >
+                <SeverityBadge severity={severity} />
+              </button>
+            ) : (
+              <SeverityBadge severity={severity} />
+            )}
+          </span>
+        )}
       </div>
 
       {commenting &&

@@ -1,12 +1,9 @@
-import { eq } from 'drizzle-orm';
-import {
-  FEATURE_MODELS,
-  FeatureModelChoice,
-  type FeatureModelId,
-} from '@devdigest/shared';
+import type { FeatureModelChoice, FeatureModelId } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
-import * as t from '../../db/schema.js';
-import { rowsToSettings } from './helpers.js';
+import {
+  SettingsFeatureModelResolver,
+  defaultFeatureModel as registryDefault,
+} from '../../adapters/settings/feature-models.js';
 
 /**
  * Per-feature model configuration.
@@ -18,13 +15,9 @@ import { rowsToSettings } from './helpers.js';
  * constant, so behaviour is unchanged until a model is explicitly picked.
  */
 
-const DEFAULTS = Object.fromEntries(
-  FEATURE_MODELS.map((f) => [f.id, { provider: f.defaultProvider, model: f.defaultModel }]),
-) as Record<FeatureModelId, FeatureModelChoice>;
-
 /** The registry default (provider+model) for a feature — no DB read. */
 export function defaultFeatureModel(id: FeatureModelId): FeatureModelChoice {
-  return DEFAULTS[id];
+  return registryDefault(id);
 }
 
 /**
@@ -38,13 +31,7 @@ export async function getFeatureModelOverride(
   workspaceId: string,
   id: FeatureModelId,
 ): Promise<FeatureModelChoice | undefined> {
-  const rows = await container.db
-    .select({ key: t.settings.key, value: t.settings.value })
-    .from(t.settings)
-    .where(eq(t.settings.workspaceId, workspaceId));
-  const fm = (rowsToSettings(rows) as { feature_models?: Record<string, unknown> }).feature_models;
-  const parsed = FeatureModelChoice.safeParse(fm?.[id]);
-  return parsed.success ? parsed.data : undefined;
+  return new SettingsFeatureModelResolver(container.db).override(workspaceId, id);
 }
 
 /** Resolve `id` to a concrete provider+model: workspace override, else registry default. */
@@ -53,5 +40,5 @@ export async function resolveFeatureModel(
   workspaceId: string,
   id: FeatureModelId,
 ): Promise<FeatureModelChoice> {
-  return (await getFeatureModelOverride(container, workspaceId, id)) ?? DEFAULTS[id];
+  return new SettingsFeatureModelResolver(container.db).resolve(workspaceId, id);
 }
