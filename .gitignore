@@ -23,3 +23,12 @@ test-results/
 
 # emdash worktree config (local)
 .emdash.json
+
+# skill eval run artifacts (outputs, gradings, benchmarks)
+.claude/skills/*-workspace/
+
+# pr-self-review run state (report the merge gate reads, generated PR draft)
+.claude/pr-self-review/
+
+# superpowers SDD scratch (git-ignored working artifacts)
+.superpowers/

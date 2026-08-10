@@ -1,0 +1,79 @@
+{
+  "skill_name": "breaking-change",
+  "evals": [
+    {
+      "id": 0,
+      "name": "silent-delete-request",
+      "prompt": "In the dev-digest repo, `gateTriggered` and `countBlockers` are exported from reviewer-core/src/index.ts and I'm pretty sure nothing uses them any more. Remove them and tidy up the barrel.",
+      "expected_output": "Refuses to delete on the strength of a belief: runs a cross-package rg over server/src, client/src, reviewer-core/src and e2e first, notes that reviewer-core also has a CI-runner consumer that is not in this tree so a clean grep is necessary but not sufficient, and stages the removal per deprecation-policy rather than deleting in one PR.",
+      "assertions": [
+        "Runs or writes out a grep/rg across all packages before removing anything, not just server/",
+        "Treats removing a symbol from the barrel as a removal even though the source file still exports it",
+        "Points out that reviewer-core is consumed by a CI runner documented in reviewer-core/src/index.ts that is not in this tree, so the grep cannot see it",
+        "Defers the marker format and the removal window to deprecation-policy instead of inventing one",
+        "Defers the MAJOR/MINOR/PATCH verdict to semver-discipline instead of re-deriving a taxonomy",
+        "Does not claim a green typecheck is evidence that the export is unused"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "drop-column-one-migration",
+      "prompt": "We stopped using reviews.score — the new quality metric replaced it. Generate the Drizzle migration to drop the column so the schema is clean.",
+      "expected_output": "Splits the change into two migrations in two PRs: an additive expand migration now, and the DROP COLUMN later once reads have moved and the window has closed. Explains that deploys are not atomic and that a drop is irreversible.",
+      "assertions": [
+        "Refuses to ship ADD and DROP in a single migration or single PR",
+        "Names the non-atomic rollout as the reason: the old server writes a column the new schema no longer has",
+        "Notes that a dropped column is irreversible and reverting the commit does not restore the data",
+        "Uses pnpm db:generate rather than hand-writing or hand-editing the generated SQL",
+        "Asks whether the table is empty, or accepts 'the table is empty' as an explicit stated exception rather than an assumption",
+        "Does not tell the user to put a @deprecated marker on a database column"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "contract-field-rename",
+      "prompt": "Rename `dismissed_at` to `rejected_at` on FindingRecord in server/src/vendor/shared/contracts/review-api.ts. Mirror it to client/ in the same commit and update the call sites so everything compiles.",
+      "expected_output": "Explains that updating the mirror satisfies check_contract_mirror but proves nothing about compatibility, and converts the rename into expand → migrate → contract across separate PRs, with both fields shipping in the first one.",
+      "assertions": [
+        "States that a rename is a removal plus an addition, not a cosmetic change",
+        "Explains that the deployed client holding the previous bundle is the consumer that breaks, and that the mirror is not a consumer",
+        "Proposes shipping both fields in the expand step rather than swapping them",
+        "Requires the removal to be a separate, later PR",
+        "Still updates the client/ mirror in the same commit — the mirror rule is not waived, it is just not sufficient",
+        "Mentions that a z.infer type and the LLM structured-output schema are both affected by the same edit"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "module-local-cleanup-no-ceremony",
+      "prompt": "There's a helper `formatRunLabel` in server/src/modules/reviews/helpers.ts that's only called from two places inside that same module, and both call sites are gone now. Delete it.",
+      "expected_output": "Recognises this as module-local, confirms with a grep, and deletes it in one PR with the grep pasted — no deprecation marker, no window, no multi-PR sequence.",
+      "assertions": [
+        "Concludes the symbol is module-local and can be deleted in a single PR",
+        "Still runs the grep to confirm nothing outside the module imports it",
+        "Does not require a deprecation marker, a removal window, or an expand step",
+        "Notes that a symbol imported by another module would not qualify, even inside the same package",
+        "Zero findings / no ceremony is presented as the correct answer rather than a gap"
+      ],
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "semantic-inversion",
+      "prompt": "Our review score is backwards for how the dashboard reads now. Flip it so lower means better — just change the calculation, the field and the schema stay exactly as they are.",
+      "expected_output": "Identifies this as a breaking change with no schema diff: the type, the contract and any range assertion stay green while every stored row, chart and the model's own calibration change meaning. Requires a new name for the new meaning and the old one to go through the sequence.",
+      "assertions": [
+        "Classifies the change as breaking despite the schema and types being untouched",
+        "Explains that no compiler, schema check or range test detects it",
+        "Requires a new field name for the new meaning rather than reinterpreting the existing one",
+        "Notes that already-persisted rows carry the old meaning and do not migrate themselves",
+        "Mentions that Review.score's .describe() text is fed to the model, so the prompt's calibration depends on the old direction",
+        "Does not treat 'the field name and schema are unchanged' as evidence that nothing broke"
+      ],
+      "files": []
+    }
+  ]
+}

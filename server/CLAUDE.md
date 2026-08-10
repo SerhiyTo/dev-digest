@@ -22,8 +22,11 @@ reviewer-core. Uses **pnpm**.
 
 ## Conventions (non-default)
 
-- Zod contracts double as route schemas via `fastify-type-provider-zod`: one
-  definition drives request validation and response serialization.
+- Zod contracts double as route schemas via `fastify-type-provider-zod`, but
+  **only for requests**: no route declares `response:`, so nothing validates or
+  serializes what goes out. Response bodies are hand-written DTOs (e.g.
+  `modules/reviews/helpers.ts`) that no compiler checks against the contract —
+  edit a contract without its DTO and the contract silently lies.
 - Adapters are swapped for mocks through the DI container in tests — mock the
   container, not the modules.
 - Run traces stream over SSE (`fastify-sse-v2`).

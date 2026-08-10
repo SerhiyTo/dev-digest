@@ -1,0 +1,81 @@
+{
+  "skill_name": "pr-self-review",
+  "evals": [
+    {
+      "id": "eval-0-routing",
+      "name": "Routes a backend-only diff to backend auditors only",
+      "prompt": "I have open changes in server/src/db/schema/runs.ts, server/src/db/migrations/0011_sticky_puma.sql and server/src/platform/config.ts. Nothing under client/. Run a PR self-review and tell me which auditors you are dispatching and why, before you dispatch them.",
+      "expected_output": "Runs preflight.sh first, then routes to onion-architecture, drizzle-orm-patterns, postgresql-table-design, fastify-best-practices (platform/**), security and project-rules. Dispatches no React, Next, frontend-ui-architecture or react-testing-library auditor because the slice for each is empty.",
+      "assertions": [
+        "Runs assets/preflight.sh before dispatching any subagent",
+        "Dispatches onion-architecture for server/src files",
+        "Dispatches drizzle-orm-patterns and postgresql-table-design for the schema and migration files",
+        "Dispatches security even though no obviously security-related file changed",
+        "Dispatches project-rules",
+        "Does NOT dispatch react-best-practices, next-best-practices, frontend-ui-architecture or react-testing-library",
+        "States that a skill with an empty slice gets no subagent",
+        "Dispatches all auditors in a single message so they run in parallel"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-1-critical-blocks",
+      "name": "A hard-contract violation blocks the merge path",
+      "prompt": "I added a new file server/src/modules/billing/service.ts whose first line is `const key = process.env.STRIPE_KEY;`. Run the PR self-review and tell me whether I can open a pull request.",
+      "expected_output": "Preflight raises exactly one CRITICAL from the secrets-provider check citing the file and line, verdict is request_changes, and the answer is that a non-draft PR is blocked until it is fixed or acknowledged. A draft PR is still allowed.",
+      "assertions": [
+        "Reports a CRITICAL finding for process.env in feature code",
+        "Attributes it to the deterministic preflight check, not to an LLM auditor",
+        "Sets verdict to request_changes",
+        "Cites server/src/modules/billing/service.ts with a line number",
+        "Recommends injecting through SecretsProvider",
+        "States that gh pr create (non-draft) and gh pr ready are blocked",
+        "Does not claim the change can be merged as-is"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-2-no-false-positives",
+      "name": "A docs-only diff approves with zero findings",
+      "prompt": "The only thing I changed on this branch is README.md — three typo fixes. Run the PR self-review.",
+      "expected_output": "Verdict approve with an empty findings list. No auditor invents architecture, security or test findings for a markdown-only diff.",
+      "assertions": [
+        "Sets verdict to approve",
+        "Reports zero findings",
+        "Explicitly treats zero findings as a valid and good outcome rather than apologising for finding nothing",
+        "Does not raise a tests-dimension warning for a docs-only change",
+        "Does not dispatch auditors whose slice is empty",
+        "States that the gate will allow the PR to be opened"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-3-preexisting-not-blocked",
+      "name": "Inherited debt is reported, never blocking",
+      "prompt": "My branch touches server/src/vendor/shared/contracts/trace.ts. That file's client mirror has been out of sync since before my branch existed. Run the PR self-review and tell me if that blocks me.",
+      "expected_output": "The mirror drift is reported as WARNING, not CRITICAL, because the two sides already differed at the merge-base. It does not block the PR. A drift introduced by this branch would be CRITICAL.",
+      "assertions": [
+        "Compares the mirror state at the merge-base before assigning severity",
+        "Reports the pre-existing drift as WARNING, not CRITICAL",
+        "States that it does not block opening the PR",
+        "Explains that a drift introduced by this diff would be CRITICAL",
+        "Does not silently drop the finding either"
+      ],
+      "files": []
+    },
+    {
+      "id": "eval-4-ack-expiry",
+      "name": "An acknowledgement dies when its file changes",
+      "prompt": "I acknowledged the CRITICAL finding preflight-002 in server/src/modules/repos/service.ts yesterday with the reason 'handled by the adapter'. I have since edited that file. Can I open the PR now?",
+      "expected_output": "No. The acknowledgement recorded the file's hash at ack time; the file has changed, so the ack has expired and the finding blocks again. The fix is to re-run the review and re-evaluate the finding against the new code.",
+      "assertions": [
+        "States that the acknowledgement expired because the file changed",
+        "Explains that the ack stores the file hash at ack time",
+        "Says the CRITICAL blocks the merge path again",
+        "Recommends re-running /pr-self-review rather than re-acknowledging blindly",
+        "Does not treat the old acknowledgement as still valid"
+      ],
+      "files": []
+    }
+  ]
+}
