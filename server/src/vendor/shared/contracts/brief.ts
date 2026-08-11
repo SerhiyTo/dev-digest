@@ -5,11 +5,60 @@ import { z } from 'zod';
  * Smart Diff. Composed into PrBrief.
  */
 
+// ---- Risks ----
+export const RiskSeverity = z.enum(['high', 'medium', 'low']);
+export type RiskSeverity = z.infer<typeof RiskSeverity>;
+
+export const Risk = z.object({
+  kind: z.string(),
+  title: z.string(),
+  explanation: z.string(),
+  severity: RiskSeverity,
+  file_refs: z.array(z.string()),
+});
+export type Risk = z.infer<typeof Risk>;
+
+export const Risks = z.object({
+  risks: z.array(Risk),
+});
+export type Risks = z.infer<typeof Risks>;
+
 // ---- Intent ----
+export const IntentRiskArea = z.object({
+  label: z.string(),
+  severity: RiskSeverity,
+});
+export type IntentRiskArea = z.infer<typeof IntentRiskArea>;
+
+export const IntentEvidenceKind = z.enum([
+  'pr_body',
+  'pr_body_detailed',
+  'doc_reference_read',
+  'doc_reference_unresolved',
+  'issue_read',
+  'issue_reference',
+  'external_link_read',
+  'external_link',
+  'commit_messages',
+  'conventional_prefix',
+  'changed_paths',
+]);
+export type IntentEvidenceKind = z.infer<typeof IntentEvidenceKind>;
+
+export const IntentEvidence = z.object({
+  kind: IntentEvidenceKind,
+  detail: z.string(),
+  weight: z.number().min(0).max(1),
+});
+export type IntentEvidence = z.infer<typeof IntentEvidence>;
+
 export const Intent = z.object({
   intent: z.string(),
   in_scope: z.array(z.string()),
   out_of_scope: z.array(z.string()),
+  risk_areas: z.array(IntentRiskArea).default([]),
+  evidence: z.array(IntentEvidence).default([]),
+  confidence: z.number().min(0).max(1).nullish(),
 });
 export type Intent = z.infer<typeof Intent>;
 
@@ -42,24 +91,6 @@ export const BlastRadius = z.object({
   summary: z.string(),
 });
 export type BlastRadius = z.infer<typeof BlastRadius>;
-
-// ---- Risks ----
-export const RiskSeverity = z.enum(['high', 'medium', 'low']);
-export type RiskSeverity = z.infer<typeof RiskSeverity>;
-
-export const Risk = z.object({
-  kind: z.string(),
-  title: z.string(),
-  explanation: z.string(),
-  severity: RiskSeverity,
-  file_refs: z.array(z.string()),
-});
-export type Risk = z.infer<typeof Risk>;
-
-export const Risks = z.object({
-  risks: z.array(Risk),
-});
-export type Risks = z.infer<typeof Risks>;
 
 // ---- PR History ----
 export const PrHistoryItem = z.object({

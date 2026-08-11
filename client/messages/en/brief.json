@@ -10,6 +10,29 @@
   "overlap": "{count} overlap",
   "unavailable": "Brief not available yet.",
   "unavailableHint": "Run a review or open the PR to compute it.",
+  "intent": {
+    "title": "Intent",
+    "inScope": "In scope",
+    "outOfScope": "Out of scope",
+    "riskAreas": "Risk areas",
+    "coverage": "{pct}% evidence coverage",
+    "coverageUnknown": "Evidence coverage unknown",
+    "compute": "Compute intent",
+    "recompute": "Recompute",
+    "computing": "Computing…",
+    "stale": "Stale",
+    "empty": {
+      "title": "Intent not derived yet.",
+      "body": "Derive it from the title, description, commits and any plan or spec this PR links to."
+    },
+    "error": {
+      "title": "Could not load the intent."
+    }
+  },
+  "blast": {
+    "comingSoon": "Blast radius not available yet.",
+    "comingSoonHint": "Downstream callers and affected endpoints arrive in a later lesson."
+  },
   "why": {
     "title": "git-why",
     "blame": "blame",

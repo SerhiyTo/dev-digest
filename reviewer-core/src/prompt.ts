@@ -36,6 +36,8 @@ export function wrapUntrusted(label: string, content: string): string {
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
+const MAX_INTENT_CHARS = 1500;
+
 export interface PromptParts {
   /** Agent's system prompt (trusted). */
   system: string;
@@ -66,6 +68,7 @@ export interface PromptParts {
    * undefined → section omitted.
    */
   prDescription?: string;
+  intent?: string;
   /** The unified diff / user task (untrusted content). */
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
@@ -101,10 +104,18 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       ? parts.prDescription.slice(0, MAX_PR_DESCRIPTION_CHARS)
       : undefined;
 
+  const intent =
+    parts.intent && parts.intent.trim().length > 0
+      ? parts.intent.slice(0, MAX_INTENT_CHARS)
+      : undefined;
+
   const userSections: string[] = [];
   if (parts.task) userSections.push(parts.task);
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+  }
+  if (intent) {
+    userSections.push(`## Derived intent\n${wrapUntrusted('derived-intent', intent)}`);
   }
   if (skillsBlock) userSections.push(`## Skills / rules\n${skillsBlock}`);
   if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
@@ -134,6 +145,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     callers: parts.callers ?? null,
     repo_map: parts.repoMap ?? null,
     pr_description: prDescription ?? null,
+    intent: intent ?? null,
     user,
   };
 

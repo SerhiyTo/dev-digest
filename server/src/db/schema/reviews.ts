@@ -56,6 +56,30 @@ export const findings = pgTable('findings', {
   index('findings_review_id_severity_idx').on(tbl.reviewId, tbl.severity),
 ]);
 
+export interface IntentRiskAreaRow {
+  label: string;
+  severity: 'high' | 'medium' | 'low';
+}
+
+export type IntentEvidenceKindRow =
+  | 'pr_body'
+  | 'pr_body_detailed'
+  | 'doc_reference_read'
+  | 'doc_reference_unresolved'
+  | 'issue_read'
+  | 'issue_reference'
+  | 'external_link_read'
+  | 'external_link'
+  | 'commit_messages'
+  | 'conventional_prefix'
+  | 'changed_paths';
+
+export interface IntentEvidenceRow {
+  kind: IntentEvidenceKindRow;
+  detail: string;
+  weight: number;
+}
+
 export const prIntent = pgTable('pr_intent', {
   prId: uuid('pr_id')
     .primaryKey()
@@ -63,6 +87,15 @@ export const prIntent = pgTable('pr_intent', {
   intent: text('intent').notNull(),
   inScope: jsonb('in_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   outOfScope: jsonb('out_of_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  riskAreas: jsonb('risk_areas').$type<IntentRiskAreaRow[]>().notNull().default(sql`'[]'::jsonb`),
+  evidence: jsonb('evidence').$type<IntentEvidenceRow[]>().notNull().default(sql`'[]'::jsonb`),
+  confidence: doublePrecision('confidence'),
+  model: text('model'),
+  headSha: text('head_sha'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+  computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const prBrief = pgTable('pr_brief', {

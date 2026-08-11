@@ -67,9 +67,21 @@ export default function PRDetailPage() {
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
+  const diffOrder = search.get("diffOrder") === "original" ? "original" : "smart";
+  const setDiffOrder = (value: "smart" | "original") => {
+    const sp = new URLSearchParams(search.toString());
+    sp.set("diffOrder", value);
+    router.replace(`/repos/${repoId}/pulls/${number}?${sp.toString()}`, { scroll: false });
+  };
   const severity = parseSeverity(search.get("severity"));
   const setSeverity = (sev: string | null) => setParam("severity", sev);
   const targetFindingId = search.get("finding");
+  const openFinding = (findingId: string) => {
+    const sp = new URLSearchParams(search.toString());
+    sp.set("tab", "findings");
+    sp.set("finding", findingId);
+    router.push(`/repos/${repoId}/pulls/${number}?${sp.toString()}`, { scroll: false });
+  };
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -140,7 +152,7 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && <OverviewTab prBody={pr.body} prId={prId} />}
 
         {tab === "findings" && (
           <FindingsTab
@@ -178,6 +190,10 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            findings={allFindings}
+            order={diffOrder}
+            onOrderChange={setDiffOrder}
+            onFindingOpen={openFinding}
           />
         )}
       </div>

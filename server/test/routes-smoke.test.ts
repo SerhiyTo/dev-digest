@@ -92,6 +92,22 @@ describe('routes (no DB)', () => {
     await app.close();
   });
 
+  it('registers the smart-diff module in the route table', async () => {
+    const app = await buildApp({ config });
+    await app.ready();
+    const route = { method: 'GET' as const, url: '/pulls/:id/smart-diff' };
+    expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
+    await app.close();
+  });
+
+  it('rejects a non-uuid pull id on the smart-diff route', async () => {
+    const app = await buildApp({ config });
+    const res = await app.inject({ method: 'GET', url: '/pulls/not-a-uuid/smart-diff' });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('validation_error');
+    await app.close();
+  });
+
   it('returns 422 structured error on invalid body', async () => {
     const app = await buildApp({ config });
     const res = await app.inject({

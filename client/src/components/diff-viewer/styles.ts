@@ -64,6 +64,36 @@ export const s = {
     color: "var(--text-primary)",
     paddingRight: 12,
   } satisfies CSSProperties,
+  severityPill: {
+    marginLeft: "auto",
+    paddingRight: 10,
+    alignSelf: "center",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  fileFindings: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  severityButton: {
+    padding: 0,
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    font: "inherit",
+    color: "inherit",
+    display: "inline-flex",
+  } satisfies CSSProperties,
+  findingsButton: {
+    padding: 0,
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    font: "inherit",
+    color: "inherit",
+    display: "inline-flex",
+  } satisfies CSSProperties,
 } as const;
 
 /** Chevron rotates 90deg when the file card is open. */
@@ -75,10 +105,16 @@ export function chevronFor(open: boolean): CSSProperties {
   };
 }
 
-/** Row background per line kind (add/del tinted, others transparent). */
-export function lineRowFor(kind: Line["kind"]): CSSProperties {
+export function lineRowFor(kind: Line["kind"], accent?: string | null): CSSProperties {
   const background = kind === "add" ? "var(--code-add)" : kind === "del" ? "var(--code-del)" : "transparent";
-  return { display: "flex", alignItems: "stretch", fontSize: 13, lineHeight: "20px", background };
+  return {
+    display: "flex",
+    alignItems: "stretch",
+    fontSize: 13,
+    lineHeight: "20px",
+    background,
+    borderLeft: `3px solid ${accent ?? "transparent"}`,
+  };
 }
 
 /** Gutter sign colour per line kind. */

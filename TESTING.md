@@ -59,6 +59,11 @@ No `chat`, no model key.
 ## Running locally
 
 ```sh
+# every lane for one lesson, in one command
+./scripts/verify-l03.sh                 # or: cd server && pnpm verify:l03
+VERIFY_SKIP_IT=1 ./scripts/verify-l03.sh        # no Docker
+VERIFY_SKIP_BUILD=1 ./scripts/verify-l03.sh     # no `next build`
+
 # per package
 cd client        && pnpm test           # + pnpm typecheck
 cd reviewer-core && npm test
@@ -84,6 +89,13 @@ cd e2e && npm install && npm test
   committed file). CI therefore invokes the split with
   `pnpm exec vitest run …` rather than relying on committed `test:unit` /
   `test:integration` scripts.
+- **A per-lesson verifier is a shell script, not a package script.** It spans four
+  packages, so it belongs to none of them, and the `skip-worktree` note above
+  makes a `server/package.json` entry an unreliable entry point. `scripts/verify-l03.sh`
+  is the real thing; the `verify:l03` entries in `server/` and `client/` only
+  forward to it. It reports a lane it could not run as **skipped** rather than
+  passing — Docker absent, or a dev server holding `:3000` (building under
+  `pnpm dev` poisons the shared `.next`).
 - **Hermetic by default.** Reach for `src/adapters/mocks.ts` (MockLLMProvider,
   MockGitClient) rather than real network/keys.
 - **E2E specs are deterministic batch JSON** (`e2e/specs/*.flow.json`) using

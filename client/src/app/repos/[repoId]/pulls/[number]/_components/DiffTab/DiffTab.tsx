@@ -5,7 +5,9 @@ import { SectionLabel, Button } from "@devdigest/ui";
 import { DiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
 import { usePrComments, useCreatePrComment } from "@/lib/hooks/reviews";
 import { notify } from "@/lib/toast";
-import type { PrFile } from "@devdigest/shared";
+import type { FindingRecord, PrFile } from "@devdigest/shared";
+import { DiffOrderToggle, type DiffOrder } from "./_components/DiffOrderToggle";
+import { SmartDiffViewer } from "./_components/SmartDiffViewer";
 
 interface DiffTabProps {
   prId: string | null;
@@ -13,9 +15,22 @@ interface DiffTabProps {
   files: PrFile[];
   /** Inline commenting is offered only on open PRs (GitHub rejects otherwise). */
   canComment?: boolean;
+  findings: FindingRecord[];
+  order: DiffOrder;
+  onOrderChange: (order: DiffOrder) => void;
+  onFindingOpen: (findingId: string) => void;
 }
 
-export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
+export function DiffTab({
+  prId,
+  filesCount,
+  files,
+  canComment,
+  findings,
+  order,
+  onOrderChange,
+  onFindingOpen,
+}: DiffTabProps) {
   const { data: comments } = usePrComments(prId);
   const create = useCreatePrComment(prId);
   // Comments start hidden so the diff is clean by default — toggle to reveal.
@@ -45,21 +60,34 @@ export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
       <SectionLabel
         icon="Code"
         right={
-          commentCount > 0 ? (
-            <Button
-              kind="ghost"
-              size="sm"
-              icon={showComments ? "EyeOff" : "Eye"}
-              onClick={() => setShowComments((v) => !v)}
-            >
-              {showComments ? "Hide comments" : "Show comments"} ({commentCount})
-            </Button>
-          ) : undefined
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {commentCount > 0 && (
+              <Button
+                kind="ghost"
+                size="sm"
+                icon={showComments ? "EyeOff" : "Eye"}
+                onClick={() => setShowComments((v) => !v)}
+              >
+                {showComments ? "Hide comments" : "Show comments"} ({commentCount})
+              </Button>
+            )}
+            <DiffOrderToggle value={order} onChange={onOrderChange} />
+          </span>
         }
       >
         Files changed · {filesCount} files
       </SectionLabel>
-      <DiffViewer files={files} commenting={commenting} />
+      {order === "smart" ? (
+        <SmartDiffViewer
+          prId={prId}
+          files={files}
+          findings={findings}
+          commenting={commenting}
+          onFindingOpen={onFindingOpen}
+        />
+      ) : (
+        <DiffViewer files={files} commenting={commenting} />
+      )}
     </section>
   );
 }
