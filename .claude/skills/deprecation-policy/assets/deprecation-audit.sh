@@ -13,7 +13,7 @@ WARN_WINDOW_DAYS=14
 if [ "$#" -gt 0 ]; then
   SCAN_DIRS=("$@")
 else
-  SCAN_DIRS=(server/src client/src reviewer-core/src)
+  SCAN_DIRS=(server/src client/src reviewer-core/src mcp/src)
 fi
 
 SCANNED=()

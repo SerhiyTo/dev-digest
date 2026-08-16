@@ -1,0 +1,25 @@
+{
+  "name": "@devdigest/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local stdio MCP server exposing DevDigest (agents, reviews, conventions) to Claude Code. Talks HTTP to the running API at DEVDIGEST_API_URL; no DB access, types only from @devdigest/shared.",
+  "bin": { "devdigest-mcp": "bin/devdigest-mcp.mjs" },
+  "scripts": {
+    "start": "node bin/devdigest-mcp.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "inspect": "npx -y @modelcontextprotocol/inspector --cli node bin/devdigest-mcp.mjs --method tools/list"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
