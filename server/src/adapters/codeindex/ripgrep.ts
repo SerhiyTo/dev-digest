@@ -22,7 +22,7 @@ import { extractSymbols, extractReferences } from './extract.js';
  * back to a pure-Node recursive scan so it works with zero native deps (tests).
  */
 
-const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue']);
 const IGNORE_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', 'coverage']);
 
 let rgPathCache: string | null | undefined;

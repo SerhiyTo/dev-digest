@@ -41,6 +41,7 @@ export interface IndexerReferenceRow {
   toSymbol: string;
   line: number;
   contentHash: string;
+  kind: 'call' | 'type';
 }
 
 /** Bundle of values the pipeline persists into `repo_index_state`. */
@@ -128,6 +129,7 @@ export interface ResolvedCallerRow {
   toSymbol: string;
   line: number;
   rank: number;
+  kind: 'call' | 'type';
 }
 
 export class RepoIntelRepository {
@@ -512,6 +514,7 @@ export class RepoIntelRepository {
         toSymbol: t.references.toSymbol,
         line: t.references.line,
         rank: t.fileRank.rank,
+        kind: t.references.kind,
       })
       .from(t.references)
       .innerJoin(

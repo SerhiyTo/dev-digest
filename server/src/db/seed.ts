@@ -17,6 +17,7 @@ import {
   API_CONTRACT_COMPAT_DESCRIPTION,
   API_CONTRACT_COMPAT_BODY,
 } from './seed-skills.js';
+import { INDEXER_VERSION } from '../modules/repo-intel/constants.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -41,6 +42,12 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Also three untriaged convention candidates plus the completed scan row that
  * produced them, so the Conventions page has content without an LLM call.
+ *
+ * Also a persistent repo-intel index (repo_index_state/symbols/references/
+ * file_rank/file_facts) for acme/payments-api and a second, merged PR #415
+ * that also touches src/middleware/ratelimit.ts — without these the Blast
+ * Radius card has nothing to render (repos.clonePath is null here, so both
+ * of getBlastRadius's paths would otherwise come back empty + degraded).
  *
  * Remaining course lessons populate the other tables (memory, eval, …) once
  * their features are built — they start empty here.
@@ -193,6 +200,259 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         suggestion: 'Use a single IN query and group in memory.',
         confidence: 0.86,
       },
+    ]);
+  }
+
+  // ---- repo-intel: persistent index for acme/payments-api (Blast Radius) ----
+  // rateLimit/bucketKey declared in the changed src/middleware/ratelimit.ts,
+  // called from the four sites the design mock shows, plus a couple of
+  // symbols in the other changed files so changed_symbols isn't thin.
+  const [existingIndexState] = await db
+    .select({ repoId: t.repoIndexState.repoId })
+    .from(t.repoIndexState)
+    .where(eq(t.repoIndexState.repoId, repoId));
+  if (!existingIndexState) {
+    await db.insert(t.repoIndexState).values({
+      repoId,
+      lastIndexedSha: 'a1b2c3d4e5f6',
+      indexerVersion: INDEXER_VERSION,
+      status: 'full',
+      filesIndexed: 46,
+      filesSkipped: 2,
+      stats: {},
+    });
+
+    // symbols declared in the PR's changed files
+    await db
+      .insert(t.symbols)
+      .values([
+        {
+          repoId,
+          path: 'src/middleware/ratelimit.ts',
+          name: 'rateLimit',
+          kind: 'function',
+          line: 25,
+          endLine: 40,
+          exported: true,
+          signature: 'function rateLimit(opts: RateLimitOptions)',
+        },
+        {
+          repoId,
+          path: 'src/middleware/ratelimit.ts',
+          name: 'bucketKey',
+          kind: 'function',
+          line: 42,
+          endLine: 48,
+          exported: false,
+          signature: 'function bucketKey(req: Request)',
+        },
+        {
+          repoId,
+          path: 'src/api/public/webhooks.ts',
+          name: 'handleWebhook',
+          kind: 'function',
+          line: 30,
+          endLine: 60,
+          exported: true,
+        },
+        {
+          repoId,
+          path: 'src/config.ts',
+          name: 'loadConfig',
+          kind: 'function',
+          line: 5,
+          endLine: 20,
+          exported: true,
+        },
+        {
+          repoId,
+          path: 'src/api/users.ts',
+          name: 'listUsers',
+          kind: 'function',
+          line: 40,
+          endLine: 55,
+          exported: true,
+        },
+        // enclosing symbols for the caller files, so blast doesn't fall back
+        // to the file basename when naming the caller
+        {
+          repoId,
+          path: 'src/api/public/index.ts',
+          name: 'registerRoutes',
+          kind: 'function',
+          line: 10,
+          endLine: 60,
+          exported: true,
+        },
+        {
+          repoId,
+          path: 'src/api/public/health.ts',
+          name: 'registerHealthRoute',
+          kind: 'function',
+          line: 5,
+          endLine: 15,
+          exported: true,
+        },
+        {
+          repoId,
+          path: 'src/server.ts',
+          name: 'scheduleRateBucketReset',
+          kind: 'function',
+          line: 80,
+          endLine: 100,
+          exported: true,
+        },
+      ])
+      .onConflictDoNothing();
+
+    // callers of rateLimit/bucketKey — decl_file is the changed ratelimit.ts
+    await db.insert(t.references).values([
+      {
+        repoId,
+        fromPath: 'src/api/public/index.ts',
+        toSymbol: 'rateLimit',
+        line: 23,
+        declFile: 'src/middleware/ratelimit.ts',
+      },
+      {
+        repoId,
+        fromPath: 'src/api/public/webhooks.ts',
+        toSymbol: 'rateLimit',
+        line: 45,
+        declFile: 'src/middleware/ratelimit.ts',
+      },
+      {
+        repoId,
+        fromPath: 'src/api/public/health.ts',
+        toSymbol: 'rateLimit',
+        line: 11,
+        declFile: 'src/middleware/ratelimit.ts',
+      },
+      {
+        repoId,
+        fromPath: 'src/server.ts',
+        toSymbol: 'rateLimit',
+        line: 88,
+        declFile: 'src/middleware/ratelimit.ts',
+      },
+      {
+        repoId,
+        fromPath: 'src/api/public/webhooks.ts',
+        toSymbol: 'bucketKey',
+        line: 52,
+        declFile: 'src/middleware/ratelimit.ts',
+      },
+      {
+        repoId,
+        fromPath: 'src/server.ts',
+        toSymbol: 'bucketKey',
+        line: 92,
+        declFile: 'src/middleware/ratelimit.ts',
+      },
+    ]);
+
+    // file_rank — mandatory for every caller from_path (inner join in getResolvedCallers)
+    await db
+      .insert(t.fileRank)
+      .values([
+        {
+          repoId,
+          filePath: 'src/api/public/index.ts',
+          pagerank: 0.42,
+          hotness: 0,
+          rank: 0.42,
+          percentile: 88,
+        },
+        {
+          repoId,
+          filePath: 'src/api/public/webhooks.ts',
+          pagerank: 0.31,
+          hotness: 0,
+          rank: 0.31,
+          percentile: 75,
+        },
+        {
+          repoId,
+          filePath: 'src/api/public/health.ts',
+          pagerank: 0.08,
+          hotness: 0,
+          rank: 0.08,
+          percentile: 30,
+        },
+        {
+          repoId,
+          filePath: 'src/server.ts',
+          pagerank: 0.55,
+          hotness: 0,
+          rank: 0.55,
+          percentile: 95,
+        },
+      ])
+      .onConflictDoNothing();
+
+    // file_facts — endpoints/crons attributed to the caller files above
+    await db
+      .insert(t.fileFacts)
+      .values([
+        {
+          repoId,
+          filePath: 'src/api/public/index.ts',
+          endpoints: ['GET /api/public/items'],
+          crons: [],
+        },
+        {
+          repoId,
+          filePath: 'src/api/public/webhooks.ts',
+          endpoints: ['POST /api/public/webhooks'],
+          crons: [],
+        },
+        {
+          repoId,
+          filePath: 'src/api/public/health.ts',
+          endpoints: ['GET /api/public/health'],
+          crons: [],
+        },
+        {
+          repoId,
+          filePath: 'src/server.ts',
+          endpoints: [],
+          crons: ['reset-rate-buckets'],
+        },
+      ])
+      .onConflictDoNothing();
+  }
+
+  // ---- prior PR #415 also touching src/middleware/ratelimit.ts (Blast Radius history) ----
+  let [priorPr] = await db
+    .select()
+    .from(t.pullRequests)
+    .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, 415)));
+  if (!priorPr) {
+    [priorPr] = await db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId,
+        repoId,
+        number: 415,
+        title: 'Introduce token-bucket rate limiter scaffolding',
+        author: 'diego.reyes',
+        branch: 'feat/rate-limit-scaffold',
+        base: 'main',
+        headSha: 'f9e8d7c6b5a4',
+        additions: 96,
+        deletions: 12,
+        filesCount: 3,
+        status: 'merged',
+        body: 'Lays the groundwork for the token-bucket limiter that #482 builds on.',
+        openedAt: new Date('2026-07-02T10:00:00Z'),
+        updatedAt: new Date('2026-07-04T16:30:00Z'),
+      })
+      .returning();
+
+    await db.insert(t.prFiles).values([
+      { prId: priorPr!.id, path: 'src/middleware/ratelimit.ts', additions: 40, deletions: 0 },
+      { prId: priorPr!.id, path: 'src/middleware/index.ts', additions: 12, deletions: 2 },
+      { prId: priorPr!.id, path: 'src/config.ts', additions: 8, deletions: 0 },
     ]);
   }
 

@@ -18,6 +18,150 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-16: adding an extension to `SUPPORTED_EXT` does NOT make every
+  parse-gating call site pick it up, even though `SUPPORTED_EXT` is the single
+  source of truth for `walkClone`/`parseChangedFiles`/the phantom gate. THREE
+  call sites (`pipeline/full.ts`, `pipeline/incremental.ts`,
+  `service.ts` `getCallerSignatures`) gate on `langForFile(file) !== null`
+  BEFORE ever calling `parseSymbols`/`parseReferences` — and `.vue` cannot
+  have a single `Lang` (a file can hold two independently-langed script
+  blocks), so `langForFile('x.vue')` stays `null` on purpose. Without fixing
+  those three gates, `.vue` files would enter the walk, get correctly parsed
+  by a Vue-aware `parseSymbols`/`parseReferences`, and then be silently
+  counted as `filesSkipped` anyway because the caller never even tried. The
+  fix is a new exported `isParseable(file)` (`langForFile(file) !== null ||
+  isVueFile(file)`) that widens exactly that early-return check without
+  touching the parse calls themselves. Any FUTURE extension added to
+  `SUPPORTED_EXT` that can't map to a single `Lang` needs the same audit —
+  grep `langForFile(` across `src/modules/repo-intel` and `src/adapters`, not
+  just `SUPPORTED_EXT` (evidence: server/src/adapters/astgrep/index.ts
+  `isParseable`; server/src/modules/repo-intel/pipeline/full.ts,
+  incremental.ts; server/src/modules/repo-intel/service.ts
+  `getCallerSignatures` line ~567/608 pre-fix)
+- 2026-08-16: `@vue/compiler-sfc`'s `parse()` never throws for a malformed
+  SFC (an unclosed `<script setup>` tag, a genuinely garbled file) — it
+  returns a normal `SFCParseResult` with `errors.length > 0` and a `null`/
+  empty-content block. Verified directly: `'<script setup lang="ts">\n  const
+  x = {{{{\n</template>'` (unclosed script, mismatched closing tag) produces
+  exactly one error `'Element is missing end tag.'`, `descriptor.script ===
+  null`, `descriptor.scriptSetup.content === ''`. So "degrade on
+  `errors.length > 0`" is a real, exercised branch, not defensive-only
+  boilerplate — try/catch around the `parse()` call itself is still worth
+  keeping for a napi-level or unexpected throw, but the actual malformed-input
+  case for real SFCs goes through `errors`, not an exception (evidence: probe
+  against `@vue/compiler-sfc@3.5.41`; server/src/adapters/astgrep/vue.ts
+  `parseVueScriptBlocks`; server/test/astgrep-vue.test.ts "malformed source")
+- 2026-08-16: measured against the real `kst-booking-front` clone (103 `.vue`
+  files under `app/`, via a throwaway script running the shipped
+  `parseSymbols`/`parseReferences`/`parseImports`): **all 103 parse cleanly**
+  (`descriptor.errors.length === 0` for every file, zero exceptions), 9 have
+  no `<script>` block at all (plan's manual count said 6 — re-measure rather
+  than trust a hand count), 0 have both `<script>` and `<script setup>`
+  simultaneously (matches the plan). Total yield: 85 symbols, 1071
+  references, 213 imports. The low symbol count relative to reference count
+  is expected and was called out in the plan — `<script setup>` bodies are
+  almost entirely `const x = computed(...)`/`ref(...)` calls, which
+  `isFunctionLike` correctly does NOT treat as symbols, so `.vue` files
+  contribute mostly references + imports, not declarations (evidence:
+  one-off script, deleted per the task's own instruction — not committed;
+  rerun by copying the pattern in server/test/astgrep-vue.test.ts against the
+  full `clones/Maze-Logic/kst-booking-front/app` tree if this needs
+  re-verifying)
+- 2026-08-16: `RepoIntel.getUnresolvedReferences`'s own interface doc
+  (`modules/repo-intel/types.ts:156-160`) says "T2/T3: persistent
+  `references.decl_file IS NULL`", but the live implementation
+  (`service.ts` `getUnresolvedReferences`) was STILL the T1 ephemeral path as
+  of Phase 3 of the repo-intel-vue-graph plan — it calls `parseInvocationHeads`
+  (call/new/JSX heads only) directly on the clone and never queries the
+  `references` table at all. Confirmed by grep: no caller anywhere reads
+  `references` filtered on `decl_file IS NULL`, and `RepoIntelRepository`
+  has no such method. Practical effect: adding `references.kind` (T3.2) could
+  NOT poison this phantom gate because it never touches `references.kind` in
+  the first place — the "exclude kind='type' from the phantom gate" task had
+  no live code to change. Don't assume a doc comment describing a "T2/T3"
+  target state means that state was ever built; grep for an actual DB query
+  before writing the guard (evidence: server/src/modules/repo-intel/types.ts:156-161;
+  server/src/modules/repo-intel/service.ts:578-627 getUnresolvedReferences;
+  regression test server/test/repo-intel-facade-degraded.test.ts "phantom gate
+  excludes type usages")
+- 2026-08-16: `@ast-grep/napi`'s `SgNode.kind()` returns a project-typed
+  `Kinds<TypesMap>` union, NOT `string` — passing it straight into a plain
+  `Set<string>.has(...)` fails `tsc` with a confusing "Type 'number' is not
+  assignable to type 'string'" (the union apparently includes numeric-looking
+  literal members under the hood). Cast at the call site (`DECL_KINDS.has(pk
+  as string)`); comparing with `=== 'literal'` doesn't hit this because `===`
+  doesn't require full assignability the way a generic parameter does
+  (evidence: server/src/adapters/astgrep/index.ts isDeclarationName)
+- 2026-08-16: a plain (non-jsonb) Drizzle `text()` column takes a literal
+  union the same way a jsonb `$type<>` field does —
+  `text('kind').$type<'call' | 'type'>().notNull().default('call')` — and
+  `pnpm db:generate` emits a clean single-column ADD migration for it (no
+  interactive prompt, unlike the drop+add case already documented below).
+  Confirmed against a live DB via the Testcontainers `.it.test.ts` lane, not
+  just typecheck (evidence: server/src/db/schema/context.ts references.kind;
+  server/src/db/migrations/0018_groovy_warbound.sql)
+- 2026-08-16: `dependency-cruiser`'s `cruise()` takes resolveOptions as its
+  **3rd positional argument** (`cruise(files, cruiseOptions, resolveOptions,
+  transpileOptions)` — `node_modules/dependency-cruiser/types/dependency-cruiser.d.mts:90`),
+  NOT as a key inside the 2nd-arg cruise options object. There is no
+  `resolveOptions` field on `ICruiseOptions` at all — `alias` only reaches
+  enhanced-resolve when passed as arg 3, typed via
+  `Partial<IResolveOptions>` (`types/resolve-options.d.mts`, which extends
+  enhanced-resolve's `ResolveOptions`). Passing `{ resolveOptions: { alias } }`
+  inside arg 2 typechecks (extra property, no error under structural typing
+  laxness at the cast site) and silently does nothing — the alias is never
+  read. Proven end-to-end against the real clone at
+  `server/clones/Maze-Logic/kst-booking-front`: wiring `alias` through arg 3
+  plus `tsPreCompilationDeps: true` in arg 2 took `buildEdges()` from 0 → 209
+  edges over 144 walked files; `kst-crm` (non-Nuxt, alias detector returns
+  `null`) went 26 files → 33 edges, no regression (evidence:
+  server/src/adapters/depgraph/index.ts `cruise(absPaths, options,
+  resolveOptions)`; server/src/adapters/depgraph/nuxt-alias.ts)
+- 2026-08-16: `server/src/adapters/depgraph/index.ts` had a literal NUL byte
+  (`0x00`) embedded in `` `${from} ${to}` `` (the edge-dedup key) already
+  committed at `HEAD` before this session touched the file — confirmed via
+  `git show HEAD:...| python3 -c "...count(b'\x00')"` → `1`, so it predates
+  any edit here. Its symptom is exactly what you'd expect from a genuinely
+  bad edit: `file` reports `data` instead of `text`, and `git diff` on the
+  file always prints "Binary files ... differ" (no readable diff) as long as
+  the committed blob carries the byte, even after a working-tree fix. Fixed
+  in-place by restoring the space separator via `bytes.replace()` in Python
+  (the Edit tool's string-literal `old_string` cannot represent/match a raw
+  NUL byte in its JSON parameter). If this file (or any other) ever shows as
+  binary in `git status`/`git diff` again, check for a stray control byte
+  before assuming corruption from your own change — `python3 -c
+  "print(open(path,'rb').read().count(b'\x00'))"` finds it in one line
+  (evidence: git blob `9ab8c5e` of server/src/adapters/depgraph/index.ts)
+- 2026-08-16: to call a sibling slice's Container-held service without an
+  `import type` from that slice (blocked by `no-cross-slice-imports`, which is
+  `tsPreCompilationDeps: true` with no type-only exemption), re-declare a
+  STRUCTURAL port in your own `ports.ts` naming only your own types, then do a
+  plain `const engine: MyPort = container.otherSlice;` in `routes.ts` — no
+  cast needed. TypeScript checks this via structural assignability, not the
+  imported type's name, and depcruise only inspects literal import
+  statements, so the container getter's real return type (which DOES import
+  the other slice) never has to appear in your file. A method's return type
+  is checked covariantly, so a narrower field there (e.g. a string-literal
+  union) still satisfies a wider one declared in your port (e.g. plain
+  `string`) (evidence: server/src/modules/blast/ports.ts BlastEngine vs
+  server/src/modules/repo-intel/types.ts RepoIntel.getBlastRadius; wired at
+  server/src/modules/blast/routes.ts `const engine: BlastEngine =
+  container.repoIntel;`)
+- 2026-08-16: any seed data meant to exercise `repo-intel`'s persistent blast
+  path (`RepoIntelService.tryPersistentBlast`) needs FOUR tables kept in sync,
+  not just `symbols`/`references`: (1) `repo_index_state.status` must be
+  `'full'` or `'partial'` or the whole persistent path is skipped; (2)
+  `references.decl_file` must be non-null and equal to one of the changed
+  files, `to_symbol` must match a symbol name with no `.` in it (qualified
+  `Class.method` rows are dropped on purpose); (3) `getResolvedCallers` INNER
+  JOINs `file_rank` on `(repoId, references.from_path)` — a caller file
+  without a `file_rank` row silently vanishes from the result, no error; (4)
+  `getFileFacts`/`enclosingFromRows` read `symbols` rows for the CALLER files
+  too (not just the changed ones) — skip that and every caller's enclosing
+  name falls back to the file basename instead of a real function name
+  (evidence: server/src/modules/repo-intel/repository.ts getResolvedCallers
+  inner join; server/src/modules/repo-intel/service.ts tryPersistentBlast,
+  enclosingFromRows; seeded in server/src/db/seed.ts repo-intel block)
 - 2026-08-10: `ports.ts` may NOT import a sibling slice file other than
   `domain|ports|constants.ts` — dependency-cruiser `ring-1-domain-stays-pure` is
   `severity: error` and allows only `vendor/shared`, those three names, and
@@ -105,6 +249,35 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-16: repo-intel Phase 2 (Vue SFC support) — `@vue/compiler-sfc@^3`
+  added (also switches on dependency-cruiser's built-in `.vue` handling);
+  `.vue` joined `SUPPORTED_EXT` + ripgrep's separately-hardcoded `CODE_EXT`;
+  new `adapters/astgrep/vue.ts` (`parseVueScriptBlocks`, script/script-setup
+  parsed independently with file-absolute line offsets, degrades to `[]` on
+  `descriptor.errors`); `parseSymbols`/`parseReferences`/`parseImports`/
+  `parseInvocationHeads` branch internally on `.vue` and merge per-block
+  results; new `isParseable()` widens the `langForFile`-based skip gates in
+  `pipeline/full.ts`, `pipeline/incremental.ts` and `service.ts` (see Codebase
+  Patterns); three-tier Nuxt/Vue auto-import carve-out in
+  `getUnresolvedReferences` (compiler macros, a hardcoded Vue/Nuxt composable
+  list, and a tier seeded live from the repo's own `composables/`+`utils/`
+  dirs), applied only to `.vue` files; `INDEXER_VERSION` 3→4. Verified against
+  the real `kst-booking-front` clone (103/103 SFCs parse cleanly, 85
+  symbols/1071 references/213 imports) via a throwaway script, deleted after.
+  depcruise baseline unchanged at 43 violations (7 errors, 36 warnings).
+- 2026-08-16: repo-intel Phase 3 (type references) — `parseReferences` now
+  extracts `type_identifier` usages (kind: 'call' | 'type', declaration-name
+  disambiguated via the `name`-field-position rule), `references.kind` column
+  (migration 0018, additive/NOT NULL default 'call'), `INDEXER_VERSION` 2→3,
+  and an optional `BlastCaller.kind` threaded through `modules/blast/` +
+  repo-intel's `BlastCallerRow`/`getResolvedCallers` (additive/MINOR — legacy
+  payloads without `kind` still parse). Phantom-gate exclusion (T3.4) turned
+  out to need no code change — see Codebase Patterns above.
+- 2026-08-16: repo-intel Phase 1 (import-graph fixes, no Vue) — `tsPreCompilationDeps`
+  + a Nuxt-aware `resolveOptions.alias` (3rd `cruise()` arg) in
+  `adapters/depgraph`, and a `graphEmpty` health signal in
+  `pipeline/{full,incremental}.ts` gated on `GRAPH_EMPTY_MIN_FILES`; proven
+  against the real `kst-booking-front` clone (0 → 209 edges).
 - 2026-08-10: L03 Smart Diff — `smart-diff/` module and `GET /pulls/:id/smart-diff`, a deterministic path classifier (core/wiring/boilerplate, Linguist-derived lists, no glob dep, no LLM call) merged with the latest `kind='review'` findings; zero contract edits, zero migrations, the DTO `safeParse`s itself; 47 tests incl. an 8-case Testcontainers lane; spec server/specs/2026-08-10-smart-diff.md.
 - 2026-08-09: L03 Intent Layer (part 2) — reversed the no-network decision: linked GitHub issues via the authenticated client, other links via an SSRF-guarded fetcher behind an `intent_link_domains` allowlist (empty = fetch nothing); two-tier evidence so a fetched reference outscores a merely-referenced one; fixed the import cycle and the jsonb cast the reviewers found.
 - 2026-08-09: L03 Intent Layer — `intent/` module (ports-not-Container, local-only sources incl. plan/spec files read from the clone behind a path-traversal guard, cheap `review_intent` model, evidence-derived confidence), migration 0016, `intent.classify.md`, the `## Derived intent` slot in reviewer-core and its read-only wiring in `run-executor`; spec server/specs/2026-08-09-intent-layer.md.

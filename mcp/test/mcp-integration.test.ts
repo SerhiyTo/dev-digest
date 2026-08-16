@@ -9,6 +9,7 @@ import { INSTRUCTIONS } from '../src/instructions.js';
 import { createServer } from '../src/server.js';
 import {
   buildAgent,
+  buildBlastRadius,
   buildManyFindings,
   buildPull,
   buildRepo,
@@ -295,20 +296,69 @@ describe('mcp-integration', () => {
     expect(parsed.truncated.total).toBe(50);
   });
 
-  it('get_blast_radius returns a degraded stub echoing repo/pr, isError:false, and makes zero API calls', async () => {
+  it('get_blast_radius returns real downstream impact, echoing repo/pr, isError:false', async () => {
     const h = await harness();
+    const repo = buildRepo();
+    const pull = buildPull();
+    h.api.seedRepos([repo]);
+    h.api.seedPulls(repo.id, [pull]);
+    h.api.seedBlast(pull.id!, buildBlastRadius());
 
-    const result = await callTool(h, 'get_blast_radius', { repo: 'acme/api', pr: 42 });
+    const result = await callTool(h, 'get_blast_radius', { repo: repo.full_name, pr: pull.number });
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(soleText(result));
     expect(parsed).toMatchObject({
-      repo: 'acme/api',
-      pr: 42,
-      degraded: true,
-      reason: 'not_implemented',
+      repo: repo.full_name,
+      pr: pull.number,
+      degraded: false,
     });
-    expect(Object.values(h.api.calls).every((count) => count === 0)).toBe(true);
+    expect(parsed.downstream[0].symbol).toBe('rateLimit');
+    expect(parsed.downstream[0].callers[0]).toMatchObject({
+      name: 'registerRoutes',
+      file: 'src/api/public/index.ts',
+      line: 23,
+    });
+    expect(h.api.calls.listRepos).toBe(1);
+    expect(h.api.calls.listPulls).toBe(1);
+    expect(h.api.calls.getBlastRadius).toBe(1);
+  });
+
+  it('get_blast_radius on an unindexed repo comes back degraded but isError:false', async () => {
+    const h = await harness();
+    const repo = buildRepo();
+    const pull = buildPull();
+    h.api.seedRepos([repo]);
+    h.api.seedPulls(repo.id, [pull]);
+    h.api.seedBlast(
+      pull.id!,
+      buildBlastRadius({
+        changed_symbols: [],
+        downstream: [],
+        endpoints_affected: [],
+        crons_affected: [],
+        history: [],
+        degraded: true,
+        reason: 'no_data',
+      }),
+    );
+
+    const result = await callTool(h, 'get_blast_radius', { repo: repo.full_name, pr: pull.number });
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(soleText(result));
+    expect(parsed.degraded).toBe(true);
+    expect(parsed.reason).toBe('no_data');
+  });
+
+  it('get_blast_radius on an unknown repo is rejected with isError:true and lists known repos', async () => {
+    const h = await harness();
+
+    const result = await callTool(h, 'get_blast_radius', { repo: 'acme/api', pr: 42 });
+
+    expect(result.isError).toBe(true);
+    expect(soleText(result)).toContain('No repository matches "acme/api"');
+    expect(soleText(result)).toContain('Known:');
   });
 
   it('get_findings with a run_id that does not exist is rejected with isError:true', async () => {

@@ -39,12 +39,12 @@ and troubleshooting are all in [`docs/running.md`](docs/running.md).
 | `run_agent_on_pr` | Starts a review, waits for it, returns `{verdict, score, findings}` in one call. No separate start/poll step. |
 | `get_findings` | Returns findings for a run that already finished; omit `run_id` for the newest one. |
 | `get_conventions` | Returns the repo's extracted coding conventions. Read-only — never starts a scan. |
-| `get_blast_radius` | **Stub.** Always returns `degraded:true, reason:"not_implemented"`, no API calls. |
+| `get_blast_radius` | Maps a PR's changed symbols to their callers and the HTTP endpoints and cron jobs those callers reach. Read-only; returns a degraded best-effort result when the repository is not indexed. |
 
 Field-level detail — exact description strings, input schemas, API calls made,
 example payloads — is in [`docs/tool-surface.md`](docs/tool-surface.md). The
-design rationale — why these four shapes, why polling over SSE, why the stub
-makes no calls — is in
+design rationale — why these five shapes, why polling over SSE, why
+`get_blast_radius` now pays for a repo/PR resolve — is in
 [`specs/2026-08-14-devdigest-mcp.md`](specs/2026-08-14-devdigest-mcp.md).
 
 ## Request flow

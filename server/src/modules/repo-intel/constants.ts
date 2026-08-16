@@ -10,8 +10,16 @@ export const REFRESH_JOB_KIND = 'repo-intel-refresh';
 export const RESYNC_JOB_KIND = 'repo-intel-resync';
 
 // --- Walk / parse scope -----------------------------------------------------
-/** [T1] Files we parse (diff-scoped in T1; whole walk in T2). */
-export const SUPPORTED_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'] as const;
+/**
+ * [T1] Files we parse (diff-scoped in T1; whole walk in T2).
+ *
+ * `.vue` (T2 Phase 2) has no single `Lang` in `@ast-grep/napi` — a file can
+ * carry both a `<script>` and a `<script setup>` block, independently langed
+ * — so it does NOT flow through `adapters/astgrep`'s `langForFile`. Anything
+ * gating a parse on `langForFile(file) !== null` must use `isParseable`
+ * instead, or `.vue` files will be silently counted as skipped.
+ */
+export const SUPPORTED_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue'] as const;
 
 /** [T1] Directories never walked. `.gitignore` is layered on top in T2 walk. */
 export const EXCLUDED_DIRS = [
@@ -35,8 +43,21 @@ export const MAX_CALLERS_PER_SYMBOL = 20;
  *
  * v2 (T3): graph + decl_file resolution + file_rank + repo-map landed, so every
  * T2 `partial` index must be rebuilt to gain the rank-driven data.
+ *
+ * v3: `references.kind` ('call' | 'type') landed — `parseReferences` now also
+ * emits type-position usages (annotations, extends/implements, generic args).
+ * Every existing repo's `references` rows predate this and are all implicitly
+ * 'call' (the column default), so a resync alone would NOT gain type
+ * references — the version bump forces the one full reindex that does.
+ *
+ * v4: Vue SFC support landed — `.vue` joined `SUPPORTED_EXT` and the astgrep
+ * adapter now parses `<script>`/`<script setup>` blocks (see
+ * `adapters/astgrep/vue.ts`). A whole new file class enters the index, and
+ * `runIncremental` short-circuits on `sha_unchanged` without ever rebuilding
+ * anything — so without this bump no existing repo would ever pick up its
+ * `.vue` files, resync or not.
  */
-export const INDEXER_VERSION = 2;
+export const INDEXER_VERSION = 4;
 
 // --- [T2] Full-index limits (documented now, enforced in the pipeline) ------
 export const MAX_INDEXED_FILES = 5000;
@@ -46,6 +67,14 @@ export const MAX_PARSE_MS_PER_FILE = 2000;
 export const INDEX_SOFT_BUDGET_MS = 110_000;
 
 // --- [T3] Graph / hotness / repo-map ---------------------------------------
+/**
+ * Below this many walked files, zero graph edges is a normal outcome (a
+ * 2-file repo legitimately has no import between them) and must NOT trip the
+ * `graphEmpty` health signal in pipeline/{full,incremental}.ts. At or above
+ * it, zero edges from a cruise that didn't throw means resolution silently
+ * filtered everything out (e.g. unresolved aliases) — see depgraph/index.ts.
+ */
+export const GRAPH_EMPTY_MIN_FILES = 3;
 export const BFS_DEPTH = 2;
 export const HOTNESS_WINDOW_DAYS = 180;
 export const DEFAULT_REPO_MAP_TOKEN_BUDGET = 1500;

@@ -1,5 +1,6 @@
 import type {
   AgentRow,
+  BlastRadiusRow,
   ConventionsRow,
   DevDigestApi,
   FindingRow,
@@ -17,7 +18,8 @@ export type FakeApiMethod =
   | 'startReview'
   | 'listRuns'
   | 'listReviews'
-  | 'getConventions';
+  | 'getConventions'
+  | 'getBlastRadius';
 
 export type FakeApiCalls = Record<FakeApiMethod, number>;
 
@@ -51,6 +53,7 @@ function emptyCalls(): FakeApiCalls {
     listRuns: 0,
     listReviews: 0,
     getConventions: 0,
+    getBlastRadius: 0,
   };
 }
 
@@ -97,6 +100,7 @@ export class FakeDevDigestApi implements DevDigestApi {
   private readonly conventionsByRepo = new Map<string, ConventionsRow>();
   private readonly runsByPr = new Map<string, RunEntry[]>();
   private readonly reviewsByPr = new Map<string, ReviewRow[]>();
+  private readonly blastByPr = new Map<string, BlastRadiusRow>();
 
   seedAgents(agents: readonly AgentRow[]): void {
     this.agents = [...agents];
@@ -112,6 +116,10 @@ export class FakeDevDigestApi implements DevDigestApi {
 
   seedConventions(repoId: string, row: ConventionsRow): void {
     this.conventionsByRepo.set(repoId, row);
+  }
+
+  seedBlast(prId: string, row: BlastRadiusRow): void {
+    this.blastByPr.set(prId, row);
   }
 
   seedReview(prId: string, review: ReviewRow): void {
@@ -176,6 +184,15 @@ export class FakeDevDigestApi implements DevDigestApi {
     const row = this.conventionsByRepo.get(repoId);
     if (row === undefined) {
       throw new Error(`fake-api: no conventions seeded for repo ${repoId}`);
+    }
+    return row;
+  }
+
+  async getBlastRadius(prId: string): Promise<BlastRadiusRow> {
+    this.calls.getBlastRadius += 1;
+    const row = this.blastByPr.get(prId);
+    if (row === undefined) {
+      throw new Error(`fake-api: no blast seeded for pr ${prId}`);
     }
     return row;
   }
@@ -251,6 +268,37 @@ export function buildConventions(overrides: Partial<ConventionsRow> = {}): Conve
   return {
     state: { status: 'done', last_scan_at: new Date(0).toISOString() },
     candidates: [],
+    ...overrides,
+  };
+}
+
+export function buildBlastRadius(overrides: Partial<BlastRadiusRow> = {}): BlastRadiusRow {
+  return {
+    changed_symbols: [{ name: 'rateLimit', file: 'src/middleware/ratelimit.ts', kind: 'function' }],
+    downstream: [
+      {
+        symbol: 'rateLimit',
+        callers: [{ name: 'registerRoutes', file: 'src/api/public/index.ts', line: 23 }],
+        endpoints_affected: ['GET /api/public/items'],
+        crons_affected: ['reset-rate-buckets'],
+      },
+    ],
+    summary: '1 changed symbol, 1 caller across 1 file, 1 endpoint, 1 cron job.',
+    endpoints_affected: ['GET /api/public/items'],
+    crons_affected: ['reset-rate-buckets'],
+    history: [
+      {
+        pr_number: 415,
+        title: 'Tune rate limit buckets',
+        merged_at: '2026-07-04T16:30:00.000Z',
+        author: 'diego.reyes',
+        files_overlap: ['src/config.ts', 'src/middleware/ratelimit.ts'],
+        notes: 'merged',
+      },
+    ],
+    truncated: false,
+    degraded: false,
+    reason: '',
     ...overrides,
   };
 }

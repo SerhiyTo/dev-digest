@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { BlastRadiusResult } from '../blast/contract.js';
-import { capPayload } from '../format/compact.js';
+import { capPayload, toBlastPayload } from '../format/compact.js';
 import type { ToolErrorResult } from '../format/errors.js';
 import type { ToolCallExtra, ToolContext, ToolDefinition } from './registry.js';
 
 const DESCRIPTION =
-  'Blast radius of a pull request: which changed symbols have callers elsewhere. Not implemented yet, always returns an empty result with degraded:true, so do not call it or retry it.';
+  'Blast radius of a pull request: the symbols it changes, who calls them, and which HTTP endpoints and cron jobs those callers own. Read-only. Returns a degraded best-effort result when the repository is not indexed.';
 
 const inputSchema = {
   repo: z.string().describe('owner/name, or just the repository name'),
@@ -18,24 +18,36 @@ interface GetBlastRadiusArgs {
 }
 
 async function handler(
-  _ctx: ToolContext,
+  ctx: ToolContext,
   rawArgs: unknown,
-  _extra: ToolCallExtra,
+  extra: ToolCallExtra,
 ): Promise<ToolErrorResult> {
   const { repo, pr } = rawArgs as GetBlastRadiusArgs;
 
-  const stub = BlastRadiusResult.parse({
-    changed_symbols: [],
-    downstream: [],
-    summary: '',
-    degraded: true,
-    reason: 'not_implemented',
-  });
+  let repoDisplay: string | undefined;
+  try {
+    const repoRow = await ctx.resolver.resolveRepo(repo, extra.signal);
+    repoDisplay = repoRow.full_name;
 
-  return {
-    isError: false,
-    text: capPayload({ repo, pr, ...stub }),
-  };
+    const prId = await ctx.resolver.resolvePr(repoRow.id, pr, extra.signal);
+    const row = await ctx.api.getBlastRadius(prId, extra.signal);
+
+    const parsed = BlastRadiusResult.parse(row);
+
+    return {
+      isError: false,
+      text: capPayload(
+        toBlastPayload({
+          ...row,
+          ...parsed,
+          repo: repoDisplay,
+          pr,
+        }),
+      ),
+    };
+  } catch (err) {
+    return ctx.mapError(err, repoDisplay);
+  }
 }
 
 export const getBlastRadiusTool: ToolDefinition = {

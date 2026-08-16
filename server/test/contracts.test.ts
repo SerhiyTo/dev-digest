@@ -5,6 +5,7 @@ import {
   Intent,
   PromptAssembly,
   BlastRadius,
+  BlastRadiusResponse,
   Risks,
   PrHistory,
   SmartDiff,
@@ -103,6 +104,71 @@ describe('AI contracts parse fixtures', () => {
         ],
       }),
     ).not.toThrow();
+  });
+
+  it('BlastRadiusResponse round-trips a full fixture (persistent + history + rollups)', () => {
+    const fixture = {
+      changed_symbols: [{ name: 'rateLimit', file: 'src/middleware/ratelimit.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          callers: [{ name: 'router', file: 'src/api/public/index.ts', line: 23 }],
+          endpoints_affected: ['GET /api/public/items'],
+          crons_affected: ['reset-rate-buckets'],
+        },
+      ],
+      summary: '1 changed symbol, 1 caller across 1 file, 1 endpoint, 1 cron job.',
+      endpoints_affected: ['GET /api/public/items'],
+      crons_affected: ['reset-rate-buckets'],
+      history: [
+        {
+          pr_number: 415,
+          title: 'tighten rate limiting',
+          merged_at: '2026-08-01T00:00:00.000Z',
+          author: 'octocat',
+          files_overlap: ['src/middleware/ratelimit.ts'],
+          notes: 'merged',
+        },
+      ],
+      truncated: false,
+      degraded: false,
+      reason: '',
+    };
+
+    const parsed = BlastRadiusResponse.parse(fixture);
+    expect(parsed).toEqual(fixture);
+  });
+
+  it('BlastCaller — a legacy caller without kind still parses (T3.5, additive/MINOR)', () => {
+    expect(() =>
+      BlastRadius.parse({
+        changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],
+        downstream: [
+          {
+            symbol: 'rateLimit',
+            // no `kind` field — pre-T3.5 payload shape.
+            callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
+            endpoints_affected: [],
+            crons_affected: [],
+          },
+        ],
+        summary: 's',
+      }),
+    ).not.toThrow();
+
+    const withKind = BlastRadius.parse({
+      changed_symbols: [{ name: 'DebtItem', file: 'a.ts', kind: 'interface' }],
+      downstream: [
+        {
+          symbol: 'DebtItem',
+          callers: [{ name: 'useDebt', file: 'b.ts', line: 10, kind: 'type' }],
+          endpoints_affected: [],
+          crons_affected: [],
+        },
+      ],
+      summary: 's',
+    });
+    expect(withKind.downstream[0]?.callers[0]?.kind).toBe('type');
   });
 
   it('SmartDiff (data.jsx DIFF)', () => {

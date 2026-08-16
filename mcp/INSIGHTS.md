@@ -72,11 +72,20 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
-- 2026-08-14: L04 (part 1) — scaffolded `@devdigest/mcp`, a local stdio MCP
-  server exposing `list_agents`, `run_agent_on_pr`, `get_findings`,
-  `get_conventions` and a stubbed `get_blast_radius` over the running API;
-  wired resolver caching, the polling wait loop, the compact/errors
-  formatting layer and the in-memory MCP integration suite; 114 tests passing.
+- 2026-08-16: L04 (part 2) — unstubbed `get_blast_radius`: it now resolves
+  repo/pr and calls `GET /pulls/:id/blast-radius`, parses through the
+  untouched `BlastRadiusResult` local extension, and merges back the fields
+  zod strips before pre-capping with the new `toBlastPayload`; token-budget
+  snapshots re-pinned to measured values (description 214, `INSTRUCTIONS`
+  1372, `tools/list` 3277, all within budget); 117 tests passing.
 
 ## Open Questions
 <!-- Unresolved things that need more investigation -->
+- 2026-08-16: the server-side engine caps callers globally (across all
+  changed symbols combined), not per-symbol, per
+  `docs/plans/2026-08-16-blast-radius.md` §8 risk 1 — a PR with many changed
+  symbols could see some symbols starved of callers in the raw API response.
+  This MCP module's own `BLAST_MAX_SYMBOLS`/`BLAST_MAX_CALLERS_PER_SYMBOL`
+  pre-cap in `toBlastPayload` is a separate, per-symbol cap applied on top and
+  does not fix or mask that upstream limitation; not verified against a
+  real large PR from this module.

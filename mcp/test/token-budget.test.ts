@@ -81,7 +81,7 @@ describe('resident instructions budget', () => {
   });
 
   it('pins the exact length so any edit to the string shows up as a reviewed diff', () => {
-    expect(INSTRUCTIONS.length).toMatchInlineSnapshot(`1278`);
+    expect(INSTRUCTIONS.length).toMatchInlineSnapshot(`1372`);
   });
 });
 
@@ -97,7 +97,7 @@ describe('per-tool description budget', () => {
     const lengths = Object.fromEntries(TOOLS.map((tool) => [tool.name, tool.description.length]));
     expect(lengths).toMatchInlineSnapshot(`
       {
-        "get_blast_radius": 180,
+        "get_blast_radius": 214,
         "get_conventions": 175,
         "get_findings": 221,
         "list_agents": 158,
@@ -127,7 +127,7 @@ describe('serialized tools/list size', () => {
 
   it('pins the exact serialized size so a schema or description edit shows up as a reviewed diff', () => {
     const serialized = JSON.stringify(toolsListEntries());
-    expect(serialized.length).toMatchInlineSnapshot(`3243`);
+    expect(serialized.length).toMatchInlineSnapshot(`3277`);
   });
 });
 

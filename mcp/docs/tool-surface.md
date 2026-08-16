@@ -131,14 +131,14 @@ When `state.status === 'never'` the payload carries a `hint` naming the
 manual next step (open the repo page in the DevDigest UI and scan) instead of
 leaving the model to guess (`get-conventions.ts:33-39`).
 
-## 5 · `get_blast_radius` — stub
+## 5 · `get_blast_radius`
 
 **Component:** `mcp/src/tools/get-blast-radius.ts`.
 
-**Description** (180 chars):
-> Blast radius of a pull request: which changed symbols have callers
-> elsewhere. Not implemented yet, always returns an empty result with
-> degraded:true, so do not call it or retry it.
+**Description** (214 chars):
+> Blast radius of a pull request: the symbols it changes, who calls them, and
+> which HTTP endpoints and cron jobs those callers own. Read-only. Returns a
+> degraded best-effort result when the repository is not indexed.
 
 **Inputs:**
 
@@ -147,20 +147,27 @@ leaving the model to guess (`get-conventions.ts:33-39`).
 | `repo` | `z.string()` | yes | `owner/name, or just the repository name` |
 | `pr` | `z.number().int().positive()` | yes | `GitHub pull request number` |
 
-**API calls:** none. The handler never calls `ctx.resolver` or `ctx.api` — it
-builds the stub from `BlastRadiusResult.parse()` and echoes `repo`/`pr` back
-so the model sees what it asked. Resolving `pr` would itself call
-`GET /repos/:id/pulls`, which is the GitHub import path
-(`server/src/modules/pulls/routes.ts:31`); a no-op tool has no license to
-trigger a paid sync.
+**API calls:** `GET /repos` (cached, for ref resolution) →
+`GET /repos/:id/pulls` (cached, for ref resolution) →
+`GET /pulls/:id/blast-radius`. This tool now pays the same resolve cost
+`run_agent_on_pr` and `get_findings` already pay — `GET /repos/:id/pulls` is
+also the GitHub import path (`server/src/modules/pulls/routes.ts:31`), and the
+resolver's TTL cache (`src/resolve/cache.ts`) dedupes it within a session. See
+the amendment in
+[`specs/2026-08-14-devdigest-mcp.md`](../specs/2026-08-14-devdigest-mcp.md)
+for why this is a deliberate reversal of the original no-API-calls stub.
 
 **Example:**
 ```json
-{"repo":"acme/api","pr":42,"changed_symbols":[],"downstream":[],"summary":"","degraded":true,"reason":"not_implemented"}
+{"repo":"acme/payments-api","pr":482,"summary":"5 changed symbols, 6 callers across 4 files, 3 endpoints, 1 cron job.","changed_symbols":[{"name":"rateLimit","file":"src/middleware/ratelimit.ts","kind":"function"}],"downstream":[{"symbol":"rateLimit","callers":[{"name":"registerRoutes","file":"src/api/public/index.ts","line":23}],"endpoints_affected":["GET /api/public/items"],"crons_affected":["reset-rate-buckets"]}],"endpoints_affected":["GET /api/public/health","GET /api/public/items","POST /api/public/webhooks"],"crons_affected":["reset-rate-buckets"],"history":[{"pr_number":415,"title":"Tune rate limit buckets","merged_at":"2026-07-04T16:30:00.000Z","author":"diego.reyes","files_overlap":["src/config.ts","src/middleware/ratelimit.ts"],"notes":"merged"}],"truncated":false,"degraded":false,"reason":""}
 ```
-Shape is `BlastRadius` (`server/src/vendor/shared/contracts/brief.ts:88`)
-extended locally in `mcp/src/blast/contract.ts`:
-`BlastRadius.extend({degraded, reason})`.
+The server's `BlastRadiusResponse` is parsed through the local
+`BlastRadiusResult` (`mcp/src/blast/contract.ts`,
+`BlastRadius.extend({degraded, reason})`), which zod trims down to
+`changed_symbols`/`downstream`/`summary`/`degraded`/`reason`; the tool merges
+`repo`/`pr`/`endpoints_affected`/`crons_affected`/`history`/`truncated` back
+in from the raw row before `toBlastPayload` pre-caps it (10 symbols, 5
+callers per symbol) and `capPayload` applies its size backstop.
 
 ## Discrepancy against the plan
 
