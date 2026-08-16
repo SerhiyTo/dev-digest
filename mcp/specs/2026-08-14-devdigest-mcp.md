@@ -216,3 +216,61 @@ order improves prompt cache hits.
   line, and the architecture diagram in the root `README.md`; the row in
   root `TESTING.md`; `.github/workflows/mcp.yml` — deferred to a follow-up
   iteration.
+
+## Amendment (2026-08-16) — the blast-radius stub is retired
+
+The second half of L04 (`server/src/modules/repo-intel`'s `getBlastRadius`,
+now reachable through `GET /pulls/:id/blast-radius`) has shipped. This
+amendment records what changed and, specifically, why "Why the blast-radius
+stub makes no API calls" above is now **reversed** rather than deleted — the
+reasoning that section documents was correct for a tool that always answered
+empty; it stops applying once the tool has a real answer to give.
+
+**The resolve-cost reversal.** `get_blast_radius` now calls
+`ctx.resolver.resolveRepo` → `ctx.resolver.resolvePr` before
+`ctx.api.getBlastRadius`, exactly like `run_agent_on_pr` and `get_findings`.
+Three reasons this is the right call now, not a quiet regression of the
+original decision:
+
+1. **The answer is real, so the cost is justified.** The stub's whole
+   argument was that resolving `pr` — which calls `GET /repos/:id/pulls`, the
+   same endpoint the GitHub import path uses
+   (`server/src/modules/pulls/routes.ts:31`) — has no license to run for an
+   answer that is always empty. That premise is gone: the tool now returns
+   the PR's actual changed symbols, callers, and endpoint/cron impact, which
+   is unobtainable without knowing which PR row to query.
+2. **It is the same cost two of the other four tools already pay.**
+   `run_agent_on_pr` and `get_findings` both resolve `repo` and `pr` through
+   the identical path. `get_blast_radius` was the outlier for not paying it,
+   not the other way around.
+3. **The TTL cache dedupes it per session.** `src/resolve/cache.ts` caches
+   the repo and pull lists (not per-ref lookups), so calling
+   `get_blast_radius` after any other tool has already resolved the same
+   `repo`/`pr` in the session costs zero additional GitHub syncs — the same
+   guarantee `run_agent_on_pr` and `get_findings` already rely on.
+
+**Rejected alternative: a dedicated cheap lookup route.** A
+`GET /repos/:id/pulls/by-number/:n` endpoint that returns just the PR id
+without the full list (and without the import/backfill side effect) was
+considered, to avoid paying the `GET /repos/:id/pulls` cost at all. Rejected:
+it is a new public HTTP surface (a MINOR contract change, its own route
+tests, its own docs) built solely to route around a cost this MCP server
+already pays twice elsewhere and already caches. The existing resolve path
+was cheaper to keep than a new endpoint would have been to add.
+
+**What did not change.** `mcp/src/blast/contract.ts`
+(`BlastRadiusResult = BlastRadius.extend({degraded, reason})`) is untouched —
+"Why the extended shape is local" above still holds, because the server's
+`BlastRadiusResponse` stayed a flat envelope specifically so this file could
+stay unchanged. The tool now merges back `endpoints_affected`/
+`crons_affected`/`history`/`truncated` from the raw HTTP row after
+`.parse()`, the same pattern that was already used for `repo`/`pr`.
+
+**Measured numbers moved.** With a real description and real resolve calls,
+the token-budget snapshots in the table above are superseded:
+`INSTRUCTIONS.length` is now **1372** chars (was 1278), the `get_blast_radius`
+description is now **214** chars (was 180), and the serialized `tools/list`
+response is now **3277** chars (was 3243). All three stay inside their
+budgets (< 2048, ≤ 320, < 3500). `mcp/test/token-budget.test.ts`'s inline
+snapshots are the live source of truth; this note exists only so the history
+above is not misread as still current.

@@ -3,6 +3,7 @@ import type { Config } from '../config.js';
 import type { DevDigestApi } from '../ports.js';
 import {
   AgentListSchema,
+  BlastRadiusRowSchema,
   ConventionsRowSchema,
   PullListSchema,
   ReviewListSchema,
@@ -211,6 +212,15 @@ export function createHttpApi(config: Config): DevDigestApi {
       return fetchJson(config, ConventionsRowSchema, {
         method: 'GET',
         path: `/repos/${repoId}/conventions`,
+        timeoutMs: config.requestTimeoutMs,
+        ...(signal ? { signal } : {}),
+      });
+    },
+
+    getBlastRadius(prId, signal) {
+      return fetchJson(config, BlastRadiusRowSchema, {
+        method: 'GET',
+        path: `/pulls/${prId}/blast-radius`,
         timeoutMs: config.requestTimeoutMs,
         ...(signal ? { signal } : {}),
       });

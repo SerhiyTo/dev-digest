@@ -3,6 +3,7 @@ import type { Severity } from '@devdigest/shared';
 import {
   capPayload,
   toAgentsPayload,
+  toBlastPayload,
   toConventionsPayload,
   toFindingsPayload,
 } from '../src/format/compact.js';
@@ -191,27 +192,103 @@ describe('capPayload', () => {
 });
 
 describe('BlastRadiusResult', () => {
-  it('accepts the stub payload, stripping the unknown repo/pr keys BlastRadius never declared', () => {
-    const stub = {
-      repo: 'acme/api',
-      pr: 42,
-      changed_symbols: [],
-      downstream: [],
-      summary: '',
-      degraded: true,
-      reason: 'not_implemented',
+  it('accepts a realistic body, stripping repo/pr/history/roll-ups/truncated that BlastRadius never declared', () => {
+    const changed_symbols = [
+      { name: 'rateLimit', file: 'src/middleware/ratelimit.ts', kind: 'function' },
+    ];
+    const downstream = [
+      {
+        symbol: 'rateLimit',
+        callers: [{ name: 'registerRoutes', file: 'src/api/public/index.ts', line: 23 }],
+        endpoints_affected: ['GET /api/public/items'],
+        crons_affected: ['reset-rate-buckets'],
+      },
+    ];
+    const summary = '1 changed symbol, 1 caller across 1 file, 1 endpoint, 1 cron job.';
+
+    const body = {
+      repo: 'acme/payments-api',
+      pr: 482,
+      changed_symbols,
+      downstream,
+      summary,
+      endpoints_affected: ['GET /api/public/items'],
+      crons_affected: ['reset-rate-buckets'],
+      history: [
+        {
+          pr_number: 415,
+          title: 'Tune rate limit buckets',
+          merged_at: '2026-07-04T16:30:00.000Z',
+          author: 'diego.reyes',
+          files_overlap: ['src/config.ts', 'src/middleware/ratelimit.ts'],
+          notes: 'merged',
+        },
+      ],
+      truncated: false,
+      degraded: false,
+      reason: '',
     };
 
-    const parsed = BlastRadiusResult.parse(stub);
+    const parsed = BlastRadiusResult.parse(body);
 
     expect(parsed).toEqual({
-      changed_symbols: [],
-      downstream: [],
-      summary: '',
-      degraded: true,
-      reason: 'not_implemented',
+      changed_symbols,
+      downstream,
+      summary,
+      degraded: false,
+      reason: '',
     });
     expect(parsed).not.toHaveProperty('repo');
     expect(parsed).not.toHaveProperty('pr');
+    expect(parsed).not.toHaveProperty('history');
+    expect(parsed).not.toHaveProperty('endpoints_affected');
+    expect(parsed).not.toHaveProperty('crons_affected');
+    expect(parsed).not.toHaveProperty('truncated');
+  });
+});
+
+describe('toBlastPayload', () => {
+  it('pre-caps at 10 symbols and 5 callers per symbol, staying valid JSON after capPayload', () => {
+    const changed_symbols = Array.from({ length: 25 }, (_, i) => ({
+      name: `symbol${i}`,
+      file: `src/file${i}.ts`,
+      kind: 'function',
+    }));
+    const downstream = Array.from({ length: 25 }, (_, i) => ({
+      symbol: `symbol${i}`,
+      callers: Array.from({ length: 20 }, (_, j) => ({
+        name: `caller${j}`,
+        file: `src/caller${j}.ts`,
+        line: j,
+      })),
+      endpoints_affected: [] as string[],
+      crons_affected: [] as string[],
+    }));
+
+    const payload = toBlastPayload({
+      repo: 'acme/payments-api',
+      pr: 482,
+      changed_symbols,
+      downstream,
+      summary: '25 changed symbols, 20 callers across 20 files, 0 endpoints, 0 cron jobs.',
+      endpoints_affected: [],
+      crons_affected: [],
+      history: [],
+      truncated: true,
+      degraded: false,
+      reason: '',
+    });
+
+    const shownSymbols = payload['changed_symbols'] as unknown[];
+    expect(shownSymbols.length).toBeLessThanOrEqual(10);
+
+    const shownDownstream = payload['downstream'] as Array<{ callers: unknown[] }>;
+    expect(shownDownstream.length).toBeLessThanOrEqual(10);
+    for (const entry of shownDownstream) {
+      expect(entry.callers.length).toBeLessThanOrEqual(5);
+    }
+
+    const capped = capPayload(payload);
+    expect(() => JSON.parse(capped)).not.toThrow();
   });
 });

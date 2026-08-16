@@ -1,7 +1,6 @@
 {
   "block": {
     "intent": "Intent",
-    "blast": "Blast radius",
     "risks": "Risks",
     "history": "PR history"
   },
@@ -28,10 +27,6 @@
     "error": {
       "title": "Could not load the intent."
     }
-  },
-  "blast": {
-    "comingSoon": "Blast radius not available yet.",
-    "comingSoonHint": "Downstream callers and affected endpoints arrive in a later lesson."
   },
   "why": {
     "title": "git-why",

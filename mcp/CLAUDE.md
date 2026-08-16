@@ -77,8 +77,15 @@ There is no lint script in any module here — do not add one.
   extended locally (`BlastRadius.extend({degraded, reason})` in
   `src/blast/contract.ts`), which is what keeps this an additive change with
   no `client/` mirror to sync. `BlastRadiusResult.parse()` strips the
-  `repo`/`pr` echo fields (zod's default mode), so `get_blast_radius` merges
-  them back in after parsing.
+  `repo`/`pr`/`endpoints_affected`/`crons_affected`/`history`/`truncated`
+  fields the server's flat `BlastRadiusResponse` carries but `BlastRadius`
+  itself never declared (zod's default `strip` mode), so `get_blast_radius`
+  merges them back in from the raw row after parsing.
+- **`get_blast_radius` is no longer a stub — it resolves repo/pr and calls
+  `GET /pulls/:id/blast-radius`.** This is a deliberate reversal of the
+  original no-API-calls design: the resolve cost is the same one
+  `run_agent_on_pr`/`get_findings` already pay, and the TTL cache dedupes it
+  per session. See the amendment in `specs/2026-08-14-devdigest-mcp.md`.
 - **All user-facing error prose lives in `src/format/errors.ts`** under
   inline snapshots, so wording is reviewed as a diff. Do not hand-roll an
   error string in a tool module.

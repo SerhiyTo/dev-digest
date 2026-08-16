@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   Agent,
+  BlastRadiusResponse,
   ConventionCandidate,
   ConventionScanState,
   FindingRecord,
@@ -12,6 +13,7 @@ import type {
 } from '@devdigest/shared';
 import type {
   AgentRow,
+  BlastRadiusRow,
   ConventionCandidateRow,
   ConventionEvidenceRow,
   ConventionsRow,
@@ -215,3 +217,71 @@ type _ConventionsStateOk = Extends<
 >;
 const _conventionsStateOk: _ConventionsStateOk = true;
 void _conventionsStateOk;
+
+export const ChangedSymbolRowSchema = z
+  .object({
+    name: z.string(),
+    file: z.string(),
+    kind: z.string(),
+  })
+  .passthrough();
+
+export const BlastCallerRowSchema = z
+  .object({
+    name: z.string(),
+    file: z.string(),
+    line: z.number(),
+  })
+  .passthrough();
+
+export const DownstreamImpactRowSchema = z
+  .object({
+    symbol: z.string(),
+    callers: z.array(BlastCallerRowSchema),
+    endpoints_affected: z.array(z.string()),
+    crons_affected: z.array(z.string()),
+  })
+  .passthrough();
+
+export const PrHistoryItemRowSchema = z
+  .object({
+    pr_number: z.number(),
+    title: z.string(),
+    merged_at: z.string(),
+    author: z.string(),
+    files_overlap: z.array(z.string()),
+    notes: z.string(),
+  })
+  .passthrough();
+
+export const BlastRadiusRowSchema = z
+  .object({
+    changed_symbols: z.array(ChangedSymbolRowSchema),
+    downstream: z.array(DownstreamImpactRowSchema),
+    summary: z.string(),
+    endpoints_affected: z.array(z.string()),
+    crons_affected: z.array(z.string()),
+    history: z.array(PrHistoryItemRowSchema),
+    truncated: z.boolean(),
+    degraded: z.boolean(),
+    reason: z.string(),
+  })
+  .passthrough();
+
+type _BlastRadiusRowOk = Extends<
+  Pick<
+    BlastRadiusResponse,
+    | 'changed_symbols'
+    | 'downstream'
+    | 'summary'
+    | 'endpoints_affected'
+    | 'crons_affected'
+    | 'history'
+    | 'truncated'
+    | 'degraded'
+    | 'reason'
+  >,
+  BlastRadiusRow
+>;
+const _blastRadiusRowOk: _BlastRadiusRowOk = true;
+void _blastRadiusRowOk;

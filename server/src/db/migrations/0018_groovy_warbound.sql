@@ -1,0 +1,1 @@
+ALTER TABLE "references" ADD COLUMN "kind" text DEFAULT 'call' NOT NULL;

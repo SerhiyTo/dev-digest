@@ -172,6 +172,60 @@ export function handler(req) {
     const refs = parseReferences('src/A.tsx', src);
     expect(refs.find((r) => r.toSymbol === 'div')).toBeUndefined();
   });
+
+  it('tags call/new/JSX references with kind "call"', () => {
+    const src = `
+export function handler(req) {
+  if (!rateLimit(req)) return 429;
+  const b = new Bucket();
+  return <Widget id={1} />;
+}
+`;
+    const refs = parseReferences('src/h.tsx', src);
+    expect(refs.find((r) => r.toSymbol === 'rateLimit')?.kind).toBe('call');
+    expect(refs.find((r) => r.toSymbol === 'Bucket')?.kind).toBe('call');
+    expect(refs.find((r) => r.toSymbol === 'Widget')?.kind).toBe('call');
+  });
+
+  it('T3.1 — disambiguates type_identifier usage from declaration, per the verified rule table', () => {
+    const src = `
+type Alias = DebtItem;
+interface Extended extends DebtItem {}
+class C implements DebtItem {}
+function f(x: DebtType): Array<DebtItem> { return [x]; }
+`;
+    const refs = parseReferences('src/types.ts', src);
+    const typeRefs = refs.filter((r) => r.kind === 'type').map((r) => r.toSymbol);
+
+    // DECLARATIONS — must NOT appear as usages.
+    expect(typeRefs).not.toContain('Alias');
+    expect(typeRefs).not.toContain('Extended');
+    expect(typeRefs).not.toContain('C');
+
+    // USAGES — must appear, each tagged kind: 'type'.
+    // `DebtItem` appears 4 times (type_alias_declaration RHS, extends_type_clause,
+    // implements_clause, type_arguments) but dedups per (name,line,kind).
+    expect(typeRefs.filter((n) => n === 'DebtItem').length).toBeGreaterThanOrEqual(1);
+    expect(typeRefs).toContain('DebtType');
+    expect(typeRefs).toContain('Array');
+
+    const aliasLine = src.split('\n').findIndex((l) => l.includes('type Alias')) + 1;
+    expect(refs.find((r) => r.toSymbol === 'DebtItem' && r.line === aliasLine)?.kind).toBe('type');
+  });
+
+  it('produces no type references for a plain .js file (no type syntax in the JS grammar)', () => {
+    const src = `function f(x) { return x; }\nf(1);\n`;
+    const refs = parseReferences('src/plain.js', src);
+    expect(refs.some((r) => r.kind === 'type')).toBe(false);
+  });
+
+  it('excludes type references inside an import statement', () => {
+    const src = `import type { DebtItem } from './types';\nexport function f(): DebtItem | null { return null; }\n`;
+    const refs = parseReferences('src/f.ts', src);
+    // Only the return-type usage counts; the import specifier is not a reference.
+    expect(refs.filter((r) => r.toSymbol === 'DebtItem')).toHaveLength(1);
+    expect(refs.find((r) => r.toSymbol === 'DebtItem')?.line).toBe(2);
+  });
 });
 
 describe('parseImports', () => {

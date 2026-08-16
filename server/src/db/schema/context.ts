@@ -93,6 +93,14 @@ export const symbols = pgTable(
  * T2 extension: added `declFile` (NULL = unresolved → feeds the
  * Phantom-gate) and `contentHash`. The legacy columns are untouched, so
  * blast/service.ts `persistReferences` keeps working.
+ *
+ * [T3] `kind` distinguishes a call/new/JSX usage (`'call'`, the historical
+ * catch-all) from a type-position usage (`'type'` — type annotations,
+ * `extends`/`implements` clauses, generic arguments; see
+ * `adapters/astgrep/index.ts` `parseReferences`). NOT NULL with a `'call'`
+ * default so every pre-existing row stays valid without a backfill. Typed
+ * with the literal union rather than `string` so a third kind added later is
+ * a compile error at every reader, not a silent drift.
  */
 export const references = pgTable(
   'references',
@@ -106,6 +114,7 @@ export const references = pgTable(
     line: integer('line').notNull(), // = ref_line
     declFile: text('decl_file'), // [T2] NEW — NULL = unresolved (Phantom-gate)
     contentHash: text('content_hash'), // [T2] NEW
+    kind: text('kind').$type<'call' | 'type'>().notNull().default('call'), // [T3] NEW
   },
   (t) => ({
     byDecl: index('references_repo_decl_symbol_idx').on(

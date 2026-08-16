@@ -24,10 +24,11 @@ import {
   parseImports,
   parseInvocationHeads,
   parseSymbols,
-  langForFile,
+  isParseable,
 } from '../../adapters/astgrep/index.js';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import { detectAliases } from '../../adapters/depgraph/nuxt-alias.js';
 import { RepoIntelRepository, type FullSymbolRow } from './repository.js';
 import type {
   BlastCallerRow,
@@ -97,6 +98,102 @@ const PHANTOM_GLOBALS_ALLOWLIST: ReadonlySet<string> = new Set([
   'describe', 'it', 'test', 'expect', 'beforeAll', 'beforeEach',
   'afterAll', 'afterEach', 'vi', 'jest',
 ]);
+
+/**
+ * Vue Compiler Macros — compiler-transformed pseudo-calls, never imported by
+ * design (`<script setup>` code that uses them has no corresponding import
+ * statement anywhere, and never will). Applied only to `.vue` files (see
+ * `getUnresolvedReferences`) so a plain `.ts` file keeps its current
+ * strictness.
+ */
+const VUE_COMPILER_MACROS: ReadonlySet<string> = new Set([
+  'defineProps', 'defineEmits', 'defineExpose', 'defineSlots',
+  'defineModel', 'defineOptions', 'withDefaults',
+]);
+
+/**
+ * Vue 3 Composition API + Nuxt framework auto-imports — real functions that
+ * exist, but never via an `import` statement in the `.vue` file that calls
+ * them (Nuxt's `unplugin-auto-import`/Vue's compiler macro system inject the
+ * binding at build time). Measured against the target repo
+ * (`Maze-Logic/kst-booking-front`): 132 `computed`, 55 `useI18n`, 29 `ref`,
+ * 21 `watch`, 8 `useRoute`, 5 `onMounted`, 3 `useRuntimeConfig`,
+ * 2 `navigateTo`, 1 `useRouter` — all real, all phantom-gate false positives
+ * without this carve-out.
+ */
+const VUE_NUXT_AUTO_IMPORTS: ReadonlySet<string> = new Set([
+  // Vue 3 reactivity / lifecycle
+  'ref', 'shallowRef', 'computed', 'reactive', 'shallowReactive', 'readonly',
+  'shallowReadonly', 'toRef', 'toRefs', 'toValue', 'toRaw', 'markRaw',
+  'isRef', 'isReactive', 'isReadonly', 'isProxy', 'unref', 'triggerRef',
+  'customRef', 'effectScope', 'getCurrentScope', 'onScopeDispose',
+  'watch', 'watchEffect', 'watchPostEffect', 'watchSyncEffect',
+  'nextTick', 'provide', 'inject', 'hasInjectionContext', 'getCurrentInstance',
+  'onBeforeMount', 'onMounted', 'onBeforeUpdate', 'onUpdated',
+  'onBeforeUnmount', 'onUnmounted', 'onErrorCaptured', 'onActivated',
+  'onDeactivated', 'onRenderTracked', 'onRenderTriggered', 'onServerPrefetch',
+  // Nuxt framework composables
+  'useRoute', 'useRouter', 'useState', 'useFetch', 'useLazyFetch',
+  'useAsyncData', 'useLazyAsyncData', 'useRuntimeConfig', 'useNuxtApp',
+  'useNuxtData', 'refreshNuxtData', 'clearNuxtData', 'navigateTo',
+  'abortNavigation', 'useCookie', 'useRequestHeaders', 'useRequestEvent',
+  'useRequestURL', 'useHead', 'useSeoMeta', 'useServerSeoMeta', 'useError',
+  'showError', 'clearError', 'definePageMeta', 'defineNuxtComponent',
+  'defineNuxtPlugin', 'defineNuxtRouteMiddleware', 'setPageLayout',
+  'preloadComponents', 'preloadRouteComponents', 'prefetchComponents',
+  // Nuxt i18n module
+  'useI18n', 'useLocalePath', 'useSwitchLocalePath', 'useLocaleHead',
+  'useBrowserLocale',
+]);
+
+/**
+ * Tier 3 of the Vue/Nuxt carve-out: Nuxt's `imports.dirs` convention
+ * auto-imports every export from `<srcDir>/composables/**` and
+ * `<srcDir>/utils/**`. These names are project-specific, so — per the
+ * carve-out's own rule of not hardcoding what the repo itself declares —
+ * they're seeded by walking those two directories and collecting exported
+ * symbol names with the same `parseSymbols` this gate already uses, rather
+ * than guessed at.
+ */
+const AUTO_IMPORT_DIRS = ['composables', 'utils'] as const;
+
+async function collectVueAutoImportNames(clonePath: string): Promise<ReadonlySet<string>> {
+  const aliases = detectAliases(clonePath);
+  const srcDir = aliases?.['~'] ?? clonePath;
+  const names = new Set<string>();
+  for (const dir of AUTO_IMPORT_DIRS) {
+    await collectExportedNames(join(srcDir, dir), names);
+  }
+  return names;
+}
+
+async function collectExportedNames(dir: string, out: Set<string>): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return; // dir doesn't exist — nothing to seed
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      await collectExportedNames(join(dir, entry.name), out);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const ext = extname(entry.name).toLowerCase();
+    // `.vue` composables are vanishingly rare and would re-enter this same
+    // gate; the ordinary TS/JS forms cover Nuxt's actual convention.
+    if (!(SUPPORTED_EXT as readonly string[]).includes(ext) || ext === '.vue') continue;
+    const full = join(dir, entry.name);
+    const source = await readFile(full, 'utf8').catch(() => null);
+    if (source == null) continue;
+    try {
+      for (const s of parseSymbols(full, source)) if (s.exported) out.add(s.name);
+    } catch {
+      // best-effort — skip a file that fails to parse
+    }
+  }
+}
 
 export class RepoIntelService implements RepoIntel {
   private readonly repo: RepoIntelRepository;
@@ -367,6 +464,7 @@ export class RepoIntelService implements RepoIntel {
         viaSymbol: c.toSymbol,
         line: c.line,
         rank: c.rank,
+        kind: c.kind,
       });
     }
     callers.sort((a, b) => b.rank - a.rank);
@@ -466,7 +564,7 @@ export class RepoIntelService implements RepoIntel {
     //    call sites, so chasing references for them just wastes work.
     const declaredSymbols = new Map<string, { file: string; kind: string }>();
     for (const file of changedFiles) {
-      if (!langForFile(file)) continue;
+      if (!isParseable(file)) continue;
       const source = await readClone(repo.clonePath, file);
       if (source == null) continue;
       try {
@@ -507,7 +605,7 @@ export class RepoIntelService implements RepoIntel {
         // Parse the caller file once; reuse for further symbols in this loop.
         let callerSyms = callerSymbolsByFile.get(r.fromPath);
         if (callerSyms === undefined) {
-          if (!langForFile(r.fromPath)) {
+          if (!isParseable(r.fromPath)) {
             callerSymbolsByFile.set(r.fromPath, []);
             callerSyms = [];
           } else {
@@ -572,6 +670,13 @@ export class RepoIntelService implements RepoIntel {
    * runtime/builtin global. `declFile` is intentionally `null` in T1 — Tier 1
    * is ephemeral (no persistent decl_file column; that lands in T2).
    *
+   * `.vue` files (T2 Phase 2) additionally carve out three tiers that are
+   * real calls with no import statement by construction: Vue compiler macros
+   * (`defineProps` et al.), Vue/Nuxt framework auto-imports (`ref`,
+   * `computed`, `useI18n`, …), and this repo's own `composables/`/`utils/`
+   * auto-imports (Nuxt's `imports.dirs` convention). Applied only when `file`
+   * itself is `.vue` — a plain `.ts` file keeps its current strictness.
+   *
    * Degraded gate: flag off, missing clone, or no parseable files → `[]`.
    * NEVER throws — per-file parse errors are swallowed.
    */
@@ -582,11 +687,17 @@ export class RepoIntelService implements RepoIntel {
     const repo = await this.repo.getRepoBasics(repoId);
     if (!repo || !repo.clonePath) return [];
 
+    const hasVueFiles = files.some((f) => extname(f).toLowerCase() === '.vue');
+    const vueAutoImports = hasVueFiles
+      ? await collectVueAutoImportNames(repo.clonePath)
+      : null;
+
     const out: RefRow[] = [];
 
     for (const file of files) {
       const ext = extname(file).toLowerCase();
       if (!(SUPPORTED_EXT as readonly string[]).includes(ext)) continue;
+      const isVue = ext === '.vue';
 
       const source = await readClone(repo.clonePath, file);
       if (source == null) continue;
@@ -614,6 +725,9 @@ export class RepoIntelService implements RepoIntel {
       for (const head of heads) {
         if (knownNames.has(head.name)) continue;
         if (PHANTOM_GLOBALS_ALLOWLIST.has(head.name)) continue;
+        if (isVue && VUE_COMPILER_MACROS.has(head.name)) continue;
+        if (isVue && VUE_NUXT_AUTO_IMPORTS.has(head.name)) continue;
+        if (isVue && vueAutoImports?.has(head.name)) continue;
         out.push({
           refFile: file,
           refLine: head.line,

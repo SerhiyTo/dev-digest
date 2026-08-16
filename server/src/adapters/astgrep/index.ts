@@ -23,6 +23,7 @@ import { extname, join } from 'node:path';
 
 import type { ExtractedReference, ExtractedSymbol } from '../codeindex/extract.js';
 import { MAX_SIGNATURE_CHARS, SUPPORTED_EXT } from '../../modules/repo-intel/constants.js';
+import { parseVueScriptBlocks } from './vue.js';
 
 // ---------------------------------------------------------------------------
 // Public types — superset of the regex extractor's row shapes.
@@ -37,9 +38,19 @@ export interface ParsedSymbol extends ExtractedSymbol {
   endLine: number;
 }
 
+/**
+ * `call`  — call/new/JSX usage (the historical shape; also the catch-all).
+ * `type`  — a `type_identifier` usage: type annotations, `extends`/
+ *           `implements` clauses, generic arguments. TS/TSX grammars only —
+ *           the plain JS grammar has no type syntax, so `.js`/`.cjs`/`.mjs`
+ *           files never produce a `type` reference.
+ */
+export type ReferenceKind = 'call' | 'type';
+
 export interface ParsedReference extends ExtractedReference {
   /** Path passed in by the caller — surfaced so consumers can fan-out. */
   refFile: string;
+  kind: ReferenceKind;
 }
 
 export interface ParsedImport {
@@ -73,6 +84,23 @@ export function langForFile(file: string): Lang | null {
     default:
       return null;
   }
+}
+
+/**
+ * `.vue` has no single `Lang` (a file can hold two independently-langed
+ * script blocks), so it deliberately does NOT flow through `langForFile`.
+ * Callers that gate on `langForFile(file) !== null` before parsing (the
+ * indexer pipeline) must widen that gate with `isParseable` instead, so a
+ * `.vue` file reaches `parseSymbols`/`parseReferences`/etc. — which handle it
+ * internally — rather than being counted as skipped.
+ */
+function isVueFile(file: string): boolean {
+  return extname(file).toLowerCase() === '.vue';
+}
+
+/** True when this adapter can produce anything for `file` — TS/JS or `.vue`. */
+export function isParseable(file: string): boolean {
+  return langForFile(file) !== null || isVueFile(file);
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +186,29 @@ function isInsideImport(n: SgNode): boolean {
   return false;
 }
 
+/**
+ * Declaration node kinds whose `name` field is a `type_identifier` that must
+ * NOT be counted as a usage. `type_alias_declaration` is the trap: in
+ * `type Alias = DebtItem` both the declared name and the referenced type sit
+ * under this same parent kind, so a parent-kind-only filter cannot tell them
+ * apart — the `name` field position is what disambiguates them.
+ */
+const DECL_KINDS = new Set([
+  'interface_declaration',
+  'class_declaration',
+  'type_alias_declaration',
+  'enum_declaration',
+]);
+
+/** True when `n` is the `name` field of one of `DECL_KINDS` (a declaration, not a usage). */
+function isDeclarationName(n: SgNode): boolean {
+  const p = n.parent();
+  const pk = p?.kind();
+  if (!p || !pk || !DECL_KINDS.has(pk as string)) return false;
+  const nameNode = getField(p, 'name');
+  return !!nameNode && nameNode.range().start.index === n.range().start.index;
+}
+
 function getField(n: SgNode, name: string): SgNode | null {
   return (n as unknown as { field(name: string): SgNode | null }).field(name);
 }
@@ -169,11 +220,26 @@ function getField(n: SgNode, name: string): SgNode | null {
 /**
  * Parse declarations in a single file's source. Method symbols are emitted
  * twice (qualified + bare) for parity with the regex extractor.
+ *
+ * `.vue` files have no single `Lang` to hand `langForFile`, so they take a
+ * separate branch: each script block is parsed independently (its own
+ * grammar, its own line offset — see `vue.ts`) and the per-block results are
+ * shifted into file-absolute lines before being merged.
  */
 export function parseSymbols(file: string, source: string): ParsedSymbol[] {
+  if (isVueFile(file)) {
+    const blocks = parseVueScriptBlocks(file, source);
+    return dedupe(
+      blocks.flatMap((block) => shiftSymbolLines(parseSymbolsForLang(block.lang, block.content), block.lineOffset)),
+    );
+  }
+
   const lang = langForFile(file);
   if (!lang) return [];
+  return parseSymbolsForLang(lang, source);
+}
 
+function parseSymbolsForLang(lang: Lang, source: string): ParsedSymbol[] {
   const root = parse(lang, source).root();
   const out: ParsedSymbol[] = [];
   const declLineByName = new Map<string, number>(); // for export-clause back-patching
@@ -201,6 +267,16 @@ export function parseSymbols(file: string, source: string): ParsedSymbol[] {
   }
 
   return dedupe(out);
+}
+
+function shiftSymbolLines(symbols: ParsedSymbol[], offset: number): ParsedSymbol[] {
+  if (offset === 0) return symbols;
+  return symbols.map((s) => ({ ...s, line: s.line + offset, endLine: s.endLine + offset }));
+}
+
+function shiftLine<T extends { line: number }>(items: T[], offset: number): T[] {
+  if (offset === 0) return items;
+  return items.map((i) => ({ ...i, line: i.line + offset }));
 }
 
 /** Pull a child decl out of an `export_statement`; return exported flag. */
@@ -400,26 +476,50 @@ function dedupe(syms: ParsedSymbol[]): ParsedSymbol[] {
  *   - the declaration line itself (matched by name + line)
  */
 export function parseReferences(file: string, source: string): ParsedReference[] {
+  if (isVueFile(file)) {
+    const blocks = parseVueScriptBlocks(file, source);
+    return dedupeReferences(
+      blocks.flatMap((block) =>
+        shiftLine(parseReferencesForLang(file, block.lang, block.content), block.lineOffset),
+      ),
+    );
+  }
+
   const lang = langForFile(file);
   if (!lang) return [];
+  return parseReferencesForLang(file, lang, source);
+}
 
+function dedupeReferences(refs: ParsedReference[]): ParsedReference[] {
+  const seen = new Set<string>();
+  const out: ParsedReference[] = [];
+  for (const r of refs) {
+    const key = `${r.toSymbol}:${r.line}:${r.kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+function parseReferencesForLang(file: string, lang: Lang, source: string): ParsedReference[] {
   const root = parse(lang, source).root();
 
   // Build a (name, line) set of declarations so we don't count the decl line.
   const declLines = new Set<string>();
-  for (const sym of parseSymbols(file, source)) {
+  for (const sym of parseSymbolsForLang(lang, source)) {
     declLines.add(`${sym.name}:${sym.line}`);
   }
 
   const out: ParsedReference[] = [];
   const dedup = new Set<string>();
-  const push = (name: string, line: number) => {
+  const push = (name: string, line: number, kind: ReferenceKind) => {
     if (KEYWORDS.has(name)) return;
     if (declLines.has(`${name}:${line}`)) return;
-    const key = `${name}:${line}`;
+    const key = `${name}:${line}:${kind}`;
     if (dedup.has(key)) return;
     dedup.add(key);
-    out.push({ toSymbol: name, line, refFile: file });
+    out.push({ toSymbol: name, line, refFile: file, kind });
   };
 
   for (const n of root.findAll({ rule: { kind: 'call_expression' } })) {
@@ -427,10 +527,10 @@ export function parseReferences(file: string, source: string): ParsedReference[]
     const fn = getField(n, 'function');
     if (!fn) continue;
     if (fn.kind() === 'identifier') {
-      push(fn.text(), lineOf(n));
+      push(fn.text(), lineOf(n), 'call');
     } else if (fn.kind() === 'member_expression') {
       const prop = rightmostName(fn);
-      if (prop) push(prop, lineOf(n));
+      if (prop) push(prop, lineOf(n), 'call');
     }
   }
 
@@ -438,7 +538,7 @@ export function parseReferences(file: string, source: string): ParsedReference[]
     if (isInsideImport(n)) continue;
     const ctor = getField(n, 'constructor');
     const name = rightmostName(ctor);
-    if (name) push(name, lineOf(n));
+    if (name) push(name, lineOf(n), 'call');
   }
 
   // JSX kinds only exist in the Tsx grammar — guard so we don't ask the
@@ -453,8 +553,22 @@ export function parseReferences(file: string, source: string): ParsedReference[]
         if (!leftName) continue;
         // Skip lowercase HTML elements (`<div>`, `<span>`) — they're not refs.
         if (/^[a-z]/.test(leftName)) continue;
-        push(leftName, lineOf(n));
+        push(leftName, lineOf(n), 'call');
       }
+    }
+  }
+
+  // Type usages — `type_identifier` in a type position (annotations, union
+  // members, `extends`/`implements` clauses, generic arguments). Only the
+  // TS/TSX grammars have this node kind at all; a plain-JS parse of
+  // `type_identifier` finds nothing, so this is a no-op (not just a skip) for
+  // Lang.JavaScript, but we guard explicitly for clarity and to avoid an
+  // unnecessary tree walk.
+  if (lang === Lang.TypeScript || lang === Lang.Tsx) {
+    for (const n of root.findAll({ rule: { kind: 'type_identifier' } })) {
+      if (isInsideImport(n)) continue;
+      if (isDeclarationName(n)) continue;
+      push(n.text(), lineOf(n), 'type');
     }
   }
 
@@ -485,9 +599,31 @@ export interface ParsedInvocationHead {
  *   `<Sym ...>`    → JSX (Tsx only) with capitalized leftmost identifier
  */
 export function parseInvocationHeads(file: string, source: string): ParsedInvocationHead[] {
+  if (isVueFile(file)) {
+    const blocks = parseVueScriptBlocks(file, source);
+    return dedupeInvocationHeads(
+      blocks.flatMap((block) => shiftLine(parseInvocationHeadsForLang(block.lang, block.content), block.lineOffset)),
+    );
+  }
+
   const lang = langForFile(file);
   if (!lang) return [];
+  return parseInvocationHeadsForLang(lang, source);
+}
 
+function dedupeInvocationHeads(heads: ParsedInvocationHead[]): ParsedInvocationHead[] {
+  const seen = new Set<string>();
+  const out: ParsedInvocationHead[] = [];
+  for (const h of heads) {
+    const key = `${h.name}:${h.line}:${h.kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(h);
+  }
+  return out;
+}
+
+function parseInvocationHeadsForLang(lang: Lang, source: string): ParsedInvocationHead[] {
   const root = parse(lang, source).root();
   const out: ParsedInvocationHead[] = [];
   const dedup = new Set<string>();
@@ -556,9 +692,18 @@ export function parseInvocationHeads(file: string, source: string): ParsedInvoca
  *   - side-effect-only `import 'x'` is ignored (no bindings).
  */
 export function parseImports(file: string, source: string): ParsedImport[] {
+  if (isVueFile(file)) {
+    const blocks = parseVueScriptBlocks(file, source);
+    // No `line` field to shift — imports from either block are just merged.
+    return blocks.flatMap((block) => parseImportsForLang(block.lang, block.content));
+  }
+
   const lang = langForFile(file);
   if (!lang) return [];
+  return parseImportsForLang(lang, source);
+}
 
+function parseImportsForLang(lang: Lang, source: string): ParsedImport[] {
   const root = parse(lang, source).root();
   const out: ParsedImport[] = [];
 

@@ -452,7 +452,11 @@ follow-up — мовчазна прогалина в мерж-гейті гір�
 
 ## Поза обсягом
 
-- Справжній blast radius (друга половина L04, читає `repo-intel`).
+- ~~Справжній blast radius (друга половина L04, читає `repo-intel`).~~
+  Зроблено `2026-08-16` в `docs/plans/2026-08-16-blast-radius.md` — заглушку
+  розкрито, `get_blast_radius` тепер резолвить repo/pr і кличе
+  `GET /pulls/:id/blast-radius`; деталі в амендменті
+  `mcp/specs/2026-08-14-devdigest-mcp.md`.
 - Старт conventions-скану з інструмента (read-інструмент не витрачає LLM-токени сам).
 - Споживання SSE.
 - Будь-які write-інструменти (`create_agent`, `accept_finding`, `import_pr`). Пʼять — фінально.

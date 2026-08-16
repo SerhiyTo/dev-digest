@@ -90,6 +90,46 @@ export interface ConventionsRow {
   candidates: ConventionCandidateRow[];
 }
 
+export interface ChangedSymbolRow {
+  name: string;
+  file: string;
+  kind: string;
+}
+
+export interface BlastCallerRow {
+  name: string;
+  file: string;
+  line: number;
+}
+
+export interface DownstreamImpactRow {
+  symbol: string;
+  callers: BlastCallerRow[];
+  endpoints_affected: string[];
+  crons_affected: string[];
+}
+
+export interface PrHistoryItemRow {
+  pr_number: number;
+  title: string;
+  merged_at: string;
+  author: string;
+  files_overlap: string[];
+  notes: string;
+}
+
+export interface BlastRadiusRow {
+  changed_symbols: ChangedSymbolRow[];
+  downstream: DownstreamImpactRow[];
+  summary: string;
+  endpoints_affected: string[];
+  crons_affected: string[];
+  history: PrHistoryItemRow[];
+  truncated: boolean;
+  degraded: boolean;
+  reason: string;
+}
+
 export interface DevDigestApi {
   listAgents(signal?: AbortSignal): Promise<AgentRow[]>;
   listRepos(signal?: AbortSignal): Promise<RepoRow[]>;
@@ -98,4 +138,5 @@ export interface DevDigestApi {
   listRuns(prId: string, signal?: AbortSignal): Promise<RunRow[]>;
   listReviews(prId: string, signal?: AbortSignal): Promise<ReviewRow[]>;
   getConventions(repoId: string, signal?: AbortSignal): Promise<ConventionsRow>;
+  getBlastRadius(prId: string, signal?: AbortSignal): Promise<BlastRadiusRow>;
 }

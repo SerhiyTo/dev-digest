@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../src/http/client.js';
 import type {
   AgentRow,
+  BlastRadiusRow,
   ConventionsRow,
   DevDigestApi,
   PullRow,
@@ -21,6 +22,7 @@ class FakeApi implements DevDigestApi {
     listRuns: 0,
     listReviews: 0,
     getConventions: 0,
+    getBlastRadius: 0,
   };
 
   constructor(
@@ -61,6 +63,11 @@ class FakeApi implements DevDigestApi {
 
   async getConventions(): Promise<ConventionsRow> {
     this.calls.getConventions += 1;
+    throw new Error('not implemented in fake');
+  }
+
+  async getBlastRadius(): Promise<BlastRadiusRow> {
+    this.calls.getBlastRadius += 1;
     throw new Error('not implemented in fake');
   }
 }
@@ -260,6 +267,9 @@ describe('propagation of API failures', () => {
       listRuns: async () => [],
       listReviews: async () => [],
       getConventions: async () => {
+        throw new Error('unused');
+      },
+      getBlastRadius: async () => {
         throw new Error('unused');
       },
     };
