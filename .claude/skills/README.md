@@ -1,6 +1,6 @@
 # Skills
 
-Reusable AI skills that provide specialized knowledge and workflows. Canonical location is `.claude/skills/` with a symlink at `.cursor/skills/ → ../.claude/skills` for Cursor compatibility. Shared with the team via version control.
+Reusable AI skills that provide specialized knowledge and workflows. They live in `.claude/skills/` and nowhere else, and are shared with the team via version control.
 
 ## Catalog
 
@@ -23,6 +23,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [pr-self-review](pr-self-review/SKILL.md) | Shared | Pre-PR gate: routes the open diff to the skills above, blocks merge on CRITICAL |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Shared | Read/append per-module INSIGHTS.md session learnings (append-only) |
+| [workflow-retrospective](workflow-retrospective/SKILL.md) | Shared | How the last multi-agent run performed: tokens, launch order, friction, duplicated work |
 
 ## What Are Skills?
 

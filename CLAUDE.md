@@ -43,11 +43,26 @@ Each module has its own CLAUDE.md (auto-loads when you work there) and README.
 - `TESTING.md` — cross-module testing strategy
 - `docs/` — cross-cutting docs (`docs/agent-prompts/` — prompt templates for the
   product's reviewer agents, not for Claude Code subagents)
-- `docs/plans/` — Development Plans written by the `planner` subagent,
-  `YYYY-MM-DD-<feature>.md`; the `implementer` subagent executes them and the
-  `plan-verifier` subagent checks the result against them
+- `specs/` — Spec Driven Development specifications written **before** the code
+  by the `spec-creator` subagent, `YYYY-MM-DD-<feature>.md` with a `Spec ID`,
+  a `Status` and EARS acceptance criteria; one per feature, across all modules
+  it touches. Not the same thing as `<module>/specs/` below — see `specs/README.md`
+- `docs/plans/` — Implementation Plans written by the `implementation-planner`
+  subagent, `YYYY-MM-DD-<feature>.md`; the `implementer` subagent executes them
+  and the `plan-verifier` subagent checks the result against them. That agent
+  plans only — the feature spec is written by `spec-creator` into `specs/`, and
+  module specs by `doc-writer` into `<module>/specs/`
+- `docs/retros/` — per-run retrospectives on how a multi-agent run performed
+  (tokens, agent order, friction, duplicated work), written by the
+  `workflow-retrospective` skill at close-out. Not the same as `INSIGHTS.md`, which
+  records lessons about the code — see `docs/retros/README.md`
 - `.claude/agents/` — Claude Code subagents (catalog in its README);
-  `.claude/skills/` — project skills (catalog in its README)
+  `.claude/skills/` — project skills (catalog in its README);
+  `.claude/commands/` — the `/sdd-*` chain that runs the agents in order.
+  **Start a feature with `/sdd`**: spec → plan → build → review → close. The
+  agents know their own job and nothing about the sequence, so the sequence
+  lives there. Do not add a `README.md` to that directory — every `.md` in it
+  registers as a command.
 - `<module>/docs/`, `<module>/specs/`, `<module>/INSIGHTS.md` — per-module;
   before implementing a feature, check the module's `specs/` for its spec.
   Read the module's `INSIGHTS.md` before working in it; at wrap-up run the

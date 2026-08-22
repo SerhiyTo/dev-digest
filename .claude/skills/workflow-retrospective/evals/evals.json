@@ -1,0 +1,50 @@
+{
+  "skill_name": "workflow-retrospective",
+  "evals": [
+    {
+      "id": 0,
+      "name": "run-with-subagents",
+      "prompt": "щойно відпрацював ланцюжок з купою агентів. Розкажи, як пройшов запуск — скільки токенів, скільки агентів, у якому порядку.",
+      "expected_output": "Runs assets/session-metrics.sh, reports orchestrator vs subagent tokens separately with cache_read as its own column, gives the launch order with parallel waves, and writes docs/retros/YYYY-MM-DD-<slug>.md in addition to answering in chat. Every section labelled measured or inferred. ## Not established and ## What went easily both present.",
+      "files": [],
+      "assertions": [
+        "Invokes assets/session-metrics.sh rather than estimating any token count",
+        "Reports subagent tokens separately from orchestrator tokens, not as one total",
+        "cache_read appears as its own column and is not folded into input",
+        "Writes the retro to docs/retros/ AND prints the report in chat",
+        "Every row or section carries a measured or inferred label",
+        "## Not established is present even if empty",
+        "## What went easily is present — the report is not only problems",
+        "No CRITICAL / WARNING / SUGGESTION severity is assigned to any recommendation",
+        "Each recommendation names a concrete file to edit as its Target"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "session-without-subagents",
+      "prompt": "зроби ретроспективу цієї сесії",
+      "expected_output": "Runs the script, sees the notes entry saying there are no subagent transcripts, and reports the orchestrator-only numbers while stating plainly that no subagents ran. Does not fabricate agent rows and does not fail.",
+      "files": [],
+      "assertions": [
+        "Surfaces the script's notes entry in the report rather than dropping it",
+        "Does not invent subagent rows or a subagent token total",
+        "Still produces the Cost section from the orchestrator numbers",
+        "States that the parallelism ratio is not meaningful for this run"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "unused-preload",
+      "prompt": "проаналізуй останній запуск і скажи, що можна прибрати з агентів, щоб було дешевше",
+      "expected_output": "Crosses each agent's skill_calls against its skills: frontmatter in .claude/agents/<type>.md and the token estimates in .claude/agents/README.md, names the preloaded skills that were never invoked with the tokens they cost per dispatch — and explicitly refuses to recommend deleting the skills: line on one run's evidence, deferring to the cross-retro trend.",
+      "files": [".claude/agents/implementer.md", ".claude/agents/README.md"],
+      "assertions": [
+        "Reads the agent's skills: frontmatter and compares it against what the agent actually invoked",
+        "Quotes the per-agent preload token estimate from .claude/agents/README.md",
+        "Multiplies the preload cost by the number of dispatches in the run",
+        "Explicitly declines to propose deleting a skills: entry on one run's evidence",
+        "Does not edit any file under .claude/agents/ itself"
+      ]
+    }
+  ]
+}
