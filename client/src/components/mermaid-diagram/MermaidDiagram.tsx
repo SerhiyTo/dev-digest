@@ -13,6 +13,45 @@ function looksLikeMermaid(src: string): boolean {
   return MERMAID_RE.test(src.trim());
 }
 
+const DIAGRAM_CSS = `
+  .node rect, .node polygon, .node circle, .node path {
+    fill: none !important;
+  }
+  .node rect {
+    rx: 8px !important;
+    ry: 8px !important;
+    stroke-width: 1.5px !important;
+    stroke: var(--border-strong) !important;
+  }
+  .node.entrypoint rect { stroke: var(--accent) !important; }
+  .node.crosscut rect { stroke: var(--warn) !important; }
+  .node.datastore rect { stroke: var(--ok) !important; }
+  .node.external rect { stroke: var(--info) !important; }
+  .node .nodeLabel, .node text, .node span {
+    fill: var(--text-primary) !important;
+    color: var(--text-primary) !important;
+  }
+  .edgePath path, path.flowchart-link {
+    stroke: var(--border-strong) !important;
+    stroke-width: 1.25px !important;
+  }
+  .marker, .marker path {
+    fill: var(--border-strong) !important;
+    stroke: var(--border-strong) !important;
+  }
+  .edgeLabel, .edgeLabel rect, .edgeLabel .labelBkg {
+    fill: var(--bg-elevated) !important;
+    background: var(--bg-elevated) !important;
+    color: var(--text-secondary) !important;
+  }
+  .cluster rect {
+    fill: none !important;
+    stroke: var(--border) !important;
+    rx: 10px !important;
+    ry: 10px !important;
+  }
+`;
+
 /**
  * Renders a mermaid diagram string to inline SVG. mermaid is imported lazily
  * (client-only). We VALIDATE with mermaid.parse({suppressErrors}) before
@@ -34,7 +73,12 @@ export function MermaidDiagram({ chart }: { chart: string }) {
     (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: document.documentElement.dataset.theme === "light" ? "neutral" : "dark",
+          securityLevel: "strict",
+          themeCSS: DIAGRAM_CSS,
+        });
         // parse first; suppressErrors → returns false (no throw, no DOM bomb).
         const valid = await mermaid.parse(src, { suppressErrors: true });
         if (cancelled) return;

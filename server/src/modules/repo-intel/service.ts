@@ -814,6 +814,11 @@ export class RepoIntelService implements RepoIntel {
     }
     return paths;
   }
+
+  async getIndexedPaths(repoId: string): Promise<string[]> {
+    if (!this.container.config.repoIntelEnabled) return [];
+    return this.repo.getIndexedPaths(repoId);
+  }
 }
 
 /** How many top-ranked files seed `getCriticalPaths` dependency chains. */

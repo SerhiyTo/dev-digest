@@ -115,6 +115,112 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-24: `SimpleGitClient.readFile` (the shared `GitClient.readFile`, used
+  by `onboarding/facts.ts`'s `readPackageScripts`, `conventions/`, `intent/`
+  and the `files` module) had NO filesystem-level containment check — only
+  `files/service.ts`'s `assertRepoRelativePath` guarded the STRING, and a
+  repository can commit a symlink (git mode `120000`) whose repo-relative name
+  passes every lexical check while resolving outside the clone on disk. Fixed
+  ONCE at the adapter (`resolveWithinClone`: `realpath` both the clone root and
+  the joined target, reject unless the target is inside the root) rather than
+  in each caller, which also closes the same door in `readPackageScripts`
+  without touching `onboarding/facts.ts`. `realpath` BOTH sides, not just the
+  target — see the 2026-08-23 `os.tmpdir()`/macOS entry in Tool & Library
+  Notes; comparing an unresolved root against a resolved target rejects
+  legitimate files (evidence: server/src/adapters/git/simple-git.ts
+  `resolveWithinClone`, `readFile`; server/test/git-file-containment.test.ts)
+- 2026-08-24: widen a module-LOCAL port before touching the shared `GitClient`
+  in `vendor/shared/adapters.ts` when only one module needs the new
+  capability. `files/ports.ts`'s `FileReader` is implemented and consumed in
+  exactly two files (`files/routes.ts`, `files/service.ts` + its test), so
+  changing `read(repo, path): Promise<string>` to
+  `read(repo, path, maxBytes): Promise<{content,truncated}|null>` (to bound a
+  read before materialising the string — the previous code read the whole file
+  into JS memory and only capped the RESPONSE, so a large repo file could hit
+  `ERR_STRING_TOO_LONG` and get silently reported as a 404) cost two files.
+  `GitClient` itself is implemented or mocked in 15+ files across
+  `src/adapters`, `platform/container.ts` and `test/*.it.test.ts`; adding a
+  required method there would have rippled through all of them for a
+  capability only `files/` needs. The bounded read lives as a standalone
+  exported function (`readClonedFileBounded`) in the git adapter file, wired
+  from `files/routes.ts` via `container.git.clonePathFor(repo)` — a method
+  `GitClient` already exposes — so the route still never joins a path itself
+  (evidence: server/src/modules/files/ports.ts `FileReader`;
+  server/src/adapters/git/simple-git.ts `readClonedFileBounded`;
+  server/src/modules/files/routes.ts)
+- 2026-08-24: correction to the "two independently-declared narrow structural
+  ports" entry below — `OnboardingFactsRepoIntel`/`OnboardingFactsGit` are gone.
+  The `BlastEngine` workaround (declare your OWN port to dodge
+  `no-cross-slice-imports`) is for reaching a SIBLING slice's Container-held
+  service; `facts.ts` and `ports.ts` are the SAME module, so that workaround
+  never applied here and the duplication was pure accident, not a second
+  instance of the pattern. `getFileRank` moved onto `RepoFacts` in `ports.ts`,
+  `facts.ts` now imports `RepoFacts`/`GitReader` from `./ports.js`, and
+  `OnboardingServiceDeps.facts` is `RepoFacts` (no more `& OnboardingFactsRepoIntel`
+  intersection at `service.ts:36`). `container.repoIntel` still satisfies the
+  widened `RepoFacts` structurally with zero casts — the extra `getFileRank`
+  method it already exposes for `repo-intel`'s own `RepoIntel` interface
+  covers it for free. Rule of thumb going forward: a same-module duplicate port
+  is a plain bug to fix by importing across the two files; only a
+  cross-slice reach legitimately needs its own re-declared port (evidence:
+  server/src/modules/onboarding/ports.ts `RepoFacts.getFileRank`;
+  server/src/modules/onboarding/facts.ts:1-2;
+  server/src/modules/onboarding/service.ts:13,36)
+- 2026-08-23: `OnboardingView.cost_usd` and `.failed_cost_usd` are NOT two
+  views of the same number — they read from two different tables. `cost_usd`
+  comes from `tourRow` (the `onboarding` table, the tour actually on screen)
+  and `failed_cost_usd` comes from `state` (`onboarding_generations`) ONLY
+  when `state.status === 'failed'`; a currently-running or successfully-`done`
+  generation never populates `failed_cost_usd`, even though `state.costUsd`
+  exists on those rows too. Collapsing the two fields into one, or dropping
+  the `isFailed` gate, would make the failure notice show a running attempt's
+  in-flight cost, or make the header's `cost_usd` jump to a failed retry's
+  cost before the retry succeeds (evidence:
+  server/src/modules/onboarding/helpers.ts:134-150 `toOnboardingView`;
+  server/src/vendor/shared/contracts/knowledge.ts:99-114 `OnboardingView`)
+- 2026-08-23: `RepoIntel.getIndexedPaths` (added for AC-8's path grounding)
+  unions DISTINCT paths from `file_rank` AND `symbols` — neither table alone
+  is complete, so reading only one would silently under-ground legitimate
+  paths and drop them via `isGroundedPath`. The facade method is gated the
+  same way as every other `RepoIntelService` method: `repoIntelEnabled ===
+  false` returns `[]` (`service.ts:820`), which means AC-8's grounding drops
+  EVERY candidate path and the tour falls straight to AC-10's empty-payload
+  branch whenever repo-intel is disabled — not only when the repo is
+  genuinely unindexed (evidence: server/src/modules/repo-intel/repository.ts:450-463
+  `getIndexedPaths`; server/src/modules/repo-intel/service.ts:818-822;
+  server/src/modules/onboarding/domain.ts:57-71 `isGroundedPath`;
+  server/src/modules/onboarding/service.ts:107-109)
+- 2026-08-23: two independently-declared narrow structural ports —
+  `RepoFacts` (`modules/onboarding/ports.ts:102-108`) and
+  `OnboardingFactsRepoIntel` (`modules/onboarding/facts.ts:27-32`) — are both
+  satisfied by the same `container.repoIntel` object with zero casts;
+  `OnboardingService`'s `facts` dep is typed as the intersection of the two
+  (`service.ts:36`) and `routes.ts:25` assigns `container.repoIntel` straight
+  into it. This is a second live instance of the `BlastEngine` pattern
+  documented below (2026-08-16): declaring your OWN structural port instead
+  of importing `modules/repo-intel/types.ts` is how a new slice reaches a
+  sibling's Container-held service without tripping `no-cross-slice-imports`
+  (evidence: server/src/modules/onboarding/service.ts:36;
+  server/src/modules/onboarding/ports.ts:102-108;
+  server/src/modules/onboarding/facts.ts:27-32;
+  server/src/modules/onboarding/routes.ts:25)
+- 2026-08-23: there is no shared, container-held "resolve a DB repo id to a
+  `RepoRef {owner,name}`" port — `context/repository.ts`, `reviews/repository.ts`
+  and `repo-intel/repository.ts` each roll their OWN tiny `getRepo` query rather
+  than sharing one. A new slice that needs the same resolution (the `files`
+  module's `GET /repos/:id/file`, built to read through `GitClient.readFile`)
+  has to add its own `repository.ts` too, even when its Files list in an
+  implementation plan doesn't list one — `drizzle-only-in-ring-3` in the onion
+  ruleset is `severity: error` for any file outside `RING_3`
+  (`^src/modules/[^/]+/repository\.ts$` or `.../repository/`) plus a short
+  grandfathered list that a brand-new module is never on, so the query cannot
+  legally live in `routes.ts` or `service.ts` no matter how small. Treat "this
+  task's Files list has no `repository.ts` but the Do: requires a DB lookup" as
+  a plan gap to flag, not a reason to inline the query (evidence:
+  .claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs
+  RING_3/LEGACY.fatRoutes; server/src/modules/context/repository.ts `getRepo`;
+  server/src/modules/files/repository.ts `findRepo`, added for T14 of
+  docs/plans/2026-08-23-onboarding-generator.md)
 - 2026-08-23: `modules/reviews/run-executor.ts` CANNOT import
   `sanitizePathLabel` from `modules/context/paths.ts` — depcruise's
   `no-cross-slice-imports` is severity `error` and run-executor is listed only in
@@ -514,6 +620,21 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-23: `@fastify/rate-limit`'s `config.rateLimit.keyGenerator` is typed
+  `(req: FastifyRequest) => string | number | Promise<...>` — the PLAIN,
+  unparameterized `FastifyRequest`
+  (`node_modules/@fastify/rate-limit/types/index.d.ts:125`), not the route's
+  narrowed request type. Declaring the generator as `(req:
+  FastifyRequest<{ Params: IdParams }>) => string` fails `tsc` with TS2322
+  (a narrower parameter is not assignable under contravariant function-type
+  checking — reproduced directly against this repo's `fastify`/`@fastify/rate-limit`
+  versions), so a per-repository key needs `(req: FastifyRequest) =>
+  (req.params as { id: string }).id` with an inline cast instead. A bare `max`
+  with no `keyGenerator` would also have been a GLOBAL limit shared across
+  every repository, not per-repository, which is what "3 per repository per
+  10 minutes" actually requires (evidence:
+  server/src/modules/onboarding/routes.ts:9-14,49-52;
+  node_modules/@fastify/rate-limit/types/index.d.ts:125)
 - 2026-08-23: `scripts/verify-l04.sh` runs the integration lane as
   `pnpm exec vitest run .it.test` with NO `--no-file-parallelism`, so it inherits
   the container-contention flake documented below in full — a lane that is
@@ -609,6 +730,20 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Recurring Errors & Fixes
 <!-- Errors seen more than once and their confirmed fixes -->
+- 2026-08-24: a repo-relative path guard that only checks STRUCTURE (no `..`,
+  no absolute, normalises to itself) is not the same as checking which files may
+  be read. `.git/config` passes every traversal/normalisation check in
+  `assertRepoRelativePath` — it is a genuinely in-clone, relative, non-traversing
+  path — and `RepoService.runCloneJob` clones through `withGitHubToken`, which
+  persists the credentialed HTTPS URL (`https://x-access-token:<PAT>@github.com/...`)
+  into that file verbatim. Any endpoint that reads arbitrary repo-relative paths
+  needs an explicit segment-level denylist (`segment === '.git'`, not a prefix
+  check — `.gitignore`/`.gitmodules`/`.github/...` must stay readable) in
+  addition to the traversal guards, because "resolves inside the clone" and
+  "safe to serve" are different properties (evidence:
+  server/src/modules/files/service.ts `assertRepoRelativePath`;
+  server/src/modules/repos/helpers.ts `withGitHubToken`;
+  server/test/repo-file-paths.test.ts)
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
@@ -725,6 +860,16 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Open Questions
 <!-- Unresolved things that need more investigation -->
+- 2026-08-24: the `.git/` denylist in `assertRepoRelativePath` closes the
+  reachability of the leak, not its source. `withGitHubToken`
+  (server/src/modules/repos/helpers.ts:29-35) still embeds the GitHub PAT in the
+  clone's remote URL, so it still lands in `.git/config` on disk — just no
+  longer servable through the file-read endpoint. The durable fix is to stop
+  persisting the credential in the clone at all (a one-shot credential helper or
+  `http.extraHeader` instead of the embedded URL, in `repos/helpers.ts` and
+  `repos/service.ts runCloneJob`), so `.git/config` never holds a secret
+  regardless of what can read it. Not done here — pre-existing behaviour this
+  session did not introduce, only made reachable.
 - 2026-08-23: correction — the `resolveForRun` question below is CLOSED, and its
   fallback is gone. `run-executor.ts` passes `clonePath: repo.clonePath`, the
   `cloneRootFor` wiring left `platform/container.ts`, and

@@ -198,6 +198,11 @@ describe('AI contracts parse fixtures', () => {
         sections: [{ kind: 'architecture', title: 'T', body: 'b', links: [] }],
       }),
     ).not.toThrow();
+    expect(
+      Onboarding.safeParse({
+        sections: [{ kind: 'routes_and_apis', title: 'T', body: 'b', links: [] }],
+      }).success,
+    ).toBe(false);
     expect(() =>
       EvalRun.parse({
         recall: 0.82,

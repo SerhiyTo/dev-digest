@@ -174,4 +174,5 @@ export interface RepoIntel {
     opts?: { exclude?: string[] },
   ): Promise<string[]>;
   getCriticalPaths(repoId: string): Promise<string[][]>;
+  getIndexedPaths(repoId: string): Promise<string[]>;
 }

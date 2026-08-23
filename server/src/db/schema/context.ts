@@ -10,6 +10,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  doublePrecision,
 } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { repos } from './repos';
@@ -135,6 +136,36 @@ export const onboarding = pgTable('onboarding', {
     .references(() => repos.id, { onDelete: 'cascade' }),
   json: jsonb('json').notNull(),
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
+  filesIndexed: integer('files_indexed'),
+  indexedSha: text('indexed_sha'),
+  model: text('model'),
+  costUsd: doublePrecision('cost_usd'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+});
+
+/**
+ * Per-repo generation status, 1:1 with repos (PK = repoId) — the same shape
+ * as convention_scans. Holds the state of the most recent onboarding-tour
+ * generation attempt; `onboarding` itself is only touched on success.
+ */
+export const onboardingGenerations = pgTable('onboarding_generations', {
+  repoId: uuid('repo_id')
+    .primaryKey()
+    .references(() => repos.id, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['running', 'done', 'failed'] }).notNull(),
+  provider: text('provider'),
+  model: text('model'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+  degradedReason: text('degraded_reason'),
+  error: text('error'),
+  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
 });
 
 export const agentDocs = pgTable(

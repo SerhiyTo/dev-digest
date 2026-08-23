@@ -28,6 +28,37 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-23: `client/src/vendor/ui/nav.ts` IS editable, despite the general
+  "vendored, treat as read-only" rule for `src/vendor/ui/` — SPEC-02 (AC-39,
+  AC-57) required adding exactly one item to `NAV`. The `Onboarding Tour` entry
+  in the WORKSPACE group plus its `g o` line in `SHORTCUTS` is the one
+  deliberate, spec-mandated edit to this file for this feature; nothing else in
+  it moved, renamed or was removed. Check the spec/plan before assuming a diff
+  touching `vendor/ui/` is a mistake to revert (evidence:
+  client/src/vendor/ui/nav.ts:26,65; specs/2026-08-23-onboarding-generator.md
+  AC-39, AC-57)
+- 2026-08-23: `activeKeyFor`'s per-route matching must be an ANCHORED pattern,
+  not a bare `.includes()` — `pathname.includes("/onboarding")` matched both
+  `/repos/:id/onboarding` (the new per-repo tour route) and the unrelated,
+  top-level `/onboarding` Add Repository screen, so the wrong sidebar item lit
+  up on that screen. Fixed with
+  `/^\/repos\/[^/]+\/onboarding(\/|$)/.test(pathname)`, scoped to the
+  repo-prefixed path. Any future nav key whose route segment is a substring of
+  another route needs the same anchoring, not `.includes()` (evidence:
+  client/src/components/app-shell/helpers.ts:29 `activeKeyFor`)
+- 2026-08-23: `client/src/lib/onboarding.ts` is the one place the three
+  complexity colours and the five section-kind order live, precisely so a THIRD
+  hand-rolled colour map is not created — two `SEV_COLOR` copies already exist
+  and have already drifted from `SEV` (see the 2026-08-01 entry below).
+  `COMPLEXITY[complexity].label` ("Low"/"Medium"/"High") is DEAD — nothing
+  reads it. The accessible pill word comes from
+  `` t(`complexity.${task.complexity}`) `` via next-intl instead, because a
+  hardcoded English `label` would violate the "every user-facing string goes
+  through next-intl" rule; only `.c`/`.bg` are consumed from the module. Do not
+  delete `.label` assuming it is unused dead code without checking for a
+  non-next-intl consumer, and do not read it expecting it to be the rendered
+  word (evidence: client/src/lib/onboarding.ts:11-18;
+  client/src/app/repos/[repoId]/onboarding/_components/FirstTasksSection/FirstTasksSection.tsx:24,35)
 - 2026-08-23: a mutation's failure is already derived state — read
   `mutation.error` from the hook's return and map it, rather than passing
   `mutate(vars, { onError })`. Two reasons beyond "derive, don't store": the
@@ -158,6 +189,34 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-23: `@testing-library/user-event` is NOT a dependency of `client/`
+  (absent from `package.json`) even though the `react-testing-library` skill's
+  own examples import it unconditionally — a test that does
+  `import userEvent from "@testing-library/user-event"` fails `pnpm typecheck`
+  with TS2307 ("Cannot find module"), not a runtime error, so it surfaces before
+  the test even runs. Prove keyboard operability of a native `<button>` instead
+  by asserting `element.tagName === "BUTTON"` (native buttons are keyboard
+  operable by HTML semantics; jsdom's `fireEvent` does not simulate the
+  browser's own Enter/Space-to-click translation for real elements anyway, so
+  simulating it would prove nothing even if the package were installed) plus
+  `element.focus()` /`toHaveFocus()` for reachability, and use `fireEvent.click`
+  for the actual toggle (evidence: `client/package.json` has
+  `@testing-library/react` + `@testing-library/jest-dom` but no
+  `@testing-library/user-event`; onboarding/_components/SectionCard/SectionCard.test.tsx)
+- 2026-08-23: mocking the `mermaid` package's dynamic `import("mermaid")` (as
+  `MermaidDiagram.tsx` does) needs `vi.mock("mermaid", factory)` to reference
+  its mock functions via `vi.hoisted()` — `vi.mock` factories are hoisted above
+  top-level `const` declarations, so a factory that closes over an
+  un-hoisted `const parse = vi.fn(...)` throws "Cannot access 'parse' before
+  initialization". Once hoisted, the mock functions are MODULE-LEVEL and their
+  call counts persist across `it()` blocks in the same file — an
+  `expect(mermaidRender).not.toHaveBeenCalled()` in a later test failed on a
+  call recorded by an earlier test, not by the code under test in that test;
+  fix with `vi.clearAllMocks()` in `afterEach` alongside `cleanup()`. This is
+  this repo's first test to mock `mermaid` at all (evidence:
+  onboarding/_components/ArchitectureSection/ArchitectureSection.test.tsx;
+  client/src/components/mermaid-diagram/MermaidDiagram.tsx:36 `await
+  import("mermaid")`)
 - 2026-08-23: next-intl's MISSING_MESSAGE fallback RENDERS THE KEY PATH as the
   string (`"agents.context.saveErrorLimit"` appears in the DOM), so a message
   added to the wrong block of a messages file still renders something and still

@@ -32,19 +32,88 @@ export const OnboardingLink = z.object({
 });
 export type OnboardingLink = z.infer<typeof OnboardingLink>;
 
+export const OnboardingSectionKind = z.enum([
+  'architecture',
+  'critical_paths',
+  'run_locally',
+  'reading_path',
+  'first_tasks',
+]);
+export type OnboardingSectionKind = z.infer<typeof OnboardingSectionKind>;
+
+export const OnboardingCriticalPathEntry = z.object({
+  path: z.string(),
+  reason: z.string(),
+});
+export type OnboardingCriticalPathEntry = z.infer<typeof OnboardingCriticalPathEntry>;
+
+export const OnboardingRunLocallyStep = z.object({
+  command: z.string(),
+  note: z.string().nullish(),
+});
+export type OnboardingRunLocallyStep = z.infer<typeof OnboardingRunLocallyStep>;
+
+export const OnboardingReadingPathStep = z.object({
+  path: z.string(),
+  rationale: z.string(),
+});
+export type OnboardingReadingPathStep = z.infer<typeof OnboardingReadingPathStep>;
+
+export const OnboardingTaskComplexity = z.enum(['low', 'medium', 'high']);
+export type OnboardingTaskComplexity = z.infer<typeof OnboardingTaskComplexity>;
+
+export const OnboardingFirstTask = z.object({
+  title: z.string(),
+  hint_path: z.string(),
+  complexity: OnboardingTaskComplexity,
+});
+export type OnboardingFirstTask = z.infer<typeof OnboardingFirstTask>;
+
+// `kind` is a closed five-value set; a section carries markdown `body` and,
+// only for the structured payload matching its own `kind`, one of the four
+// arrays below. All four are `.nullish()` so a pre-structured stored row
+// still parses, and `body` alone renders when the payload is absent.
 export const OnboardingSection = z.object({
-  kind: z.string(),
+  kind: OnboardingSectionKind,
   title: z.string(),
   body: z.string(), // markdown
   diagram: z.string().nullish(), // mermaid
   links: z.array(OnboardingLink),
+  critical_paths: z.array(OnboardingCriticalPathEntry).nullish(),
+  run_locally: z.array(OnboardingRunLocallyStep).nullish(),
+  reading_path: z.array(OnboardingReadingPathStep).nullish(),
+  first_tasks: z.array(OnboardingFirstTask).nullish(),
 });
 export type OnboardingSection = z.infer<typeof OnboardingSection>;
 
 export const Onboarding = z.object({
   sections: z.array(OnboardingSection),
+  degraded: z.boolean().default(false),
+  degraded_reason: z.string().nullish(),
 });
 export type Onboarding = z.infer<typeof Onboarding>;
+
+export const OnboardingGenerationStatus = z.enum(['running', 'done', 'failed']);
+export type OnboardingGenerationStatus = z.infer<typeof OnboardingGenerationStatus>;
+
+// The read contract the screen consumes: the stored tour (if any) plus its
+// provenance and the state of the generation that produced or is producing
+// it. `cost_usd` is the displayed tour's cost; `failed_cost_usd` is the most
+// recent failed attempt's cost — two separate fields because a failure must
+// never overwrite the cost of the tour still on screen (AC-58, AC-63, AC-65).
+export const OnboardingView = z.object({
+  tour: Onboarding.nullable(),
+  status: OnboardingGenerationStatus.nullable(),
+  failure_reason: z.string().nullish(),
+  generated_at: z.string().nullish(),
+  files_indexed: z.number().int().nullish(),
+  generated_sha: z.string().nullish(),
+  current_sha: z.string().nullish(),
+  model: z.string().nullish(),
+  cost_usd: z.number().nullable(),
+  failed_cost_usd: z.number().nullable(),
+});
+export type OnboardingView = z.infer<typeof OnboardingView>;
 
 // ---- Eval ----
 export const EvalPerTrace = z.object({

@@ -1,7 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
+import type { FastifyRequest } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { MockGitHubClient, MockLLMProvider } from '../src/adapters/mocks.js';
+import { repoIdKey } from '../src/modules/onboarding/routes.js';
 
 /**
  * No-DB route smoke tests via app.inject(). `/health` and the validation/error
@@ -104,6 +106,43 @@ describe('routes (no DB)', () => {
     const app = await buildApp({ config });
     await app.ready();
     const route = { method: 'GET' as const, url: '/pulls/:id/blast-radius' };
+    expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
+    await app.close();
+  });
+
+  it('registers the onboarding module in the route table', async () => {
+    const app = await buildApp({ config });
+    await app.ready();
+    const routes = [
+      { method: 'GET' as const, url: '/repos/:id/onboarding' },
+      { method: 'POST' as const, url: '/repos/:id/onboarding/generate' },
+    ];
+    for (const route of routes) {
+      expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
+    }
+    await app.close();
+  });
+
+  it('repoIdKey buckets two casings of the same uuid together and rejects a raw non-uuid id', () => {
+    const reqFor = (id: unknown) => ({ params: { id } }) as FastifyRequest;
+    const lower = repoIdKey(reqFor('a1b2c3d4-e5f6-4789-a012-3456789abcde'));
+    const upper = repoIdKey(reqFor('A1B2C3D4-E5F6-4789-A012-3456789ABCDE'));
+    const mixed = repoIdKey(reqFor('a1B2c3D4-E5f6-4789-a012-3456789ABCde'));
+    expect(lower).toBe(upper);
+    expect(lower).toBe(mixed);
+
+    const otherRepo = repoIdKey(reqFor('11111111-2222-4333-8444-555555555555'));
+    expect(otherRepo).not.toBe(lower);
+
+    const nonUuid = repoIdKey(reqFor('not-a-uuid'));
+    expect(nonUuid).not.toBe(lower);
+    expect(nonUuid).toBe(repoIdKey(reqFor('also-not-a-uuid')));
+  });
+
+  it('registers the files module in the route table', async () => {
+    const app = await buildApp({ config });
+    await app.ready();
+    const route = { method: 'GET' as const, url: '/repos/:id/file' };
     expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
     await app.close();
   });
