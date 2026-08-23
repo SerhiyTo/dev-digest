@@ -19,6 +19,25 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-16: a next-intl message KEY, not just its value, can be swapped for a
+  small namespaced set (`callerCount` → `callerCount.{call,type,mixed}`) and
+  looked up with a template literal (`` t(`callerCount.${kind}`, {count}) ``)
+  with zero typecheck fallout — `useTranslations` types the key as `string`
+  here, there is no generated message-key union (confirmed no `IntlMessages`/
+  `next-intl` module augmentation exists under `src/`). The same dynamic-key
+  pattern was already load-bearing one file over
+  (`` t(`degraded.reason.${reasonKey(data.reason)}`) ``
+  in `BlastRadiusCard.tsx`), which is the precedent to reach for instead of
+  keeping a single flat ICU key and branching in JS (evidence:
+  BlastRadiusCard/_components/BlastSymbolRow/BlastSymbolRow.tsx `labelKind`;
+  BlastRadiusCard/BlastRadiusCard.tsx `reasonKey`)
+- 2026-08-16: `tsconfig.json` sets `noUncheckedIndexedAccess: true`, so a regex
+  capture group accessed via `match[1]` types as `string | undefined` even right
+  after `if (!match) return …` — the exec array's numeric indices are treated
+  like any other index signature. Add an explicit `match[1] == null` guard (or
+  destructure with a fallback) before using a capture group, or `pnpm typecheck`
+  fails with "Type 'string | undefined' is not assignable to type 'string'"
+  (evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BlastRadiusCard/helpers.ts `parseEndpoint`; client/tsconfig.json:8)
 - 2026-08-10: when a feature has a primary action, put it on the affordance that
   is visible in the COLLAPSED state. Smart Diff's severity pill lives on a diff
   line, so it only exists once a card is expanded — the file-header badge is the
@@ -67,6 +86,15 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-16: RTL's `getByText` only aggregates an element's DIRECT text-node
+  children (`getNodeText` filters `childNodes` for `nodeType === TEXT_NODE`,
+  ignoring nested elements), so a stat row built as
+  `{t("a")} · {t("b")} · {t("c")}` inside one `<span>` — several ICU-plural
+  `t()` results interleaved with literal `" · "` strings — concatenates into
+  ONE matchable text and `getByText(/3 endpoints/)` finds it directly; no need
+  to fall back to `container.textContent` or split into per-stat spans just to
+  assert one plural branch (evidence: BlastRadiusCard/_components/BlastStatsRow/BlastStatsRow.tsx:31-36;
+  BlastRadiusCard/BlastRadiusCard.test.tsx "stats row plurals")
 - 2026-08-10: `SeverityBadge`'s `compact` prop renders the icon WITHOUT its
   label, so colour + glyph become the only signal — it contradicts the
   component's own "never color alone (WCAG AA)" comment. Use the full variant
@@ -86,6 +114,18 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-16: Blast Radius — distinguished a caller's `kind` ('call' vs
+  optional-absent-as-call vs 'type') in `BlastSymbolRow` (muted marker on
+  type-kind caller rows) and in the `callerCount`/`stat.callers` wording via a
+  new pure `callerLabelKind` helper and a 3-way ICU message set; 5 new
+  `BlastRadiusCard.test.tsx` cases + 5 new `helpers.test.ts` cases; spec
+  section added to `client/specs/2026-08-16-blast-radius.md`.
+- 2026-08-16: T7 Blast Radius client tests — `BlastRadiusCard.test.tsx` (15
+  cases: loading/error/empty, singular+plural stat plurals, tree row
+  expand/collapse via click and keyboard, Tree↔Graph toggle with graph node
+  cap + overflow label, Prior PRs collapsed-by-default, degraded known/unknown
+  reason, truncated callers) and `helpers.test.ts` (13 cases: `parseEndpoint`,
+  `ellipsize`, `basename`, `formatCron`, `layoutGraph` node placement/caps/dedup).
 - 2026-08-10: L03 Smart Diff — role-grouped reviewer-ordered diff in the Files changed tab behind a `?diffOrder=` toggle, per-file findings badges and per-line severity pills joined client-side from `usePrReviews`, boilerplate collapsed, retry-scroll to a target line; widened the shared diff-viewer with four optional props leaving `DiffViewer` untouched; 12 RTL cases; spec client/specs/2026-08-10-smart-diff.md.
 - 2026-08-09: L03 Intent Layer — INTENT card on the PR Overview tab (statement, in/out of scope, risk chips, evidence-derived confidence, stale badge, compute/recompute), a BLAST RADIUS placeholder card, and `lib/hooks/intent.ts` treating a 404 as the empty state; spec client/specs/2026-08-09-intent-layer.md.
 - 2026-08-05: L02 conventions extractor — `/repos/:repoId/conventions` page (evidence-backed candidate cards, accept/reject/inline edit, scope-prefix re-scan, create-skill modal with update-to-vN mode), promoted the ConfigTab body editor to `src/components/markdown-editor` behind a `labels` prop and `relativeTime` to `src/lib/time.ts`; spec client/specs/2026-08-05-conventions.md.

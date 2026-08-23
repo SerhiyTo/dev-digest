@@ -70,10 +70,15 @@ export const ChangedSymbol = z.object({
 });
 export type ChangedSymbol = z.infer<typeof ChangedSymbol>;
 
+export const BlastCallerKind = z.enum(['call', 'type']);
+export type BlastCallerKind = z.infer<typeof BlastCallerKind>;
+
 export const BlastCaller = z.object({
   name: z.string(),
   file: z.string(),
   line: z.number().int(),
+  /** Absent/unknown on legacy data — treat as 'call' (the historical meaning). */
+  kind: BlastCallerKind.optional(),
 });
 export type BlastCaller = z.infer<typeof BlastCaller>;
 

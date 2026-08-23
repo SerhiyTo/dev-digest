@@ -26,10 +26,11 @@ import PQueue from 'p-queue';
 import type { RepoRef } from '@devdigest/shared';
 import type { Container } from '../../../platform/container.js';
 import { withTimeout } from '../../../platform/resilience.js';
-import { parseSymbols, parseReferences, langForFile } from '../../../adapters/astgrep/index.js';
+import { parseSymbols, parseReferences, isParseable } from '../../../adapters/astgrep/index.js';
 import { extractEndpoints, extractCrons } from '../../../adapters/codeindex/extract.js';
 import {
   DEFAULT_REPO_MAP_TOKEN_BUDGET,
+  GRAPH_EMPTY_MIN_FILES,
   INDEX_SOFT_BUDGET_MS,
   INDEXER_VERSION,
   MAX_PARSE_MS_PER_FILE,
@@ -134,8 +135,7 @@ export async function runFullIndex(
     }
 
     void parseQ.add(async () => {
-      const lang = langForFile(relPath);
-      if (!lang) {
+      if (!isParseable(relPath)) {
         filesSkipped += 1;
         return;
       }
@@ -179,6 +179,7 @@ export async function runFullIndex(
             toSymbol: r.toSymbol,
             line: r.line,
             contentHash,
+            kind: r.kind,
           });
         }
         // Per-file facts (endpoints/crons) so blast reads from file_facts
@@ -209,6 +210,7 @@ export async function runFullIndex(
   // Skipped when the soft budget tripped: we're already over time, and the
   // graph build would blow past the hard cap. status then stays 'partial'.
   let graphFailed: string | undefined;
+  let graphEmpty: string | undefined;
   let edgeRows: IndexerEdgeRow[] = [];
   let rankCount = 0;
   if (!softBudgetReached) {
@@ -217,6 +219,14 @@ export async function runFullIndex(
       edgeRows = edges.map((e) => ({ fromFile: e.from, toFile: e.to }));
     } catch (err) {
       graphFailed = asMessage(err);
+    }
+    // A cruise that DIDN'T throw but still produced zero edges over a
+    // non-trivial file set means every dependency was filtered out on
+    // resolution (couldNotResolve) — a healthy-looking `[]` that is actually
+    // a silent failure. See adapters/depgraph/index.ts for why this can't be
+    // caught inside buildEdges itself.
+    if (!graphFailed && edgeRows.length === 0 && walk.files.length >= GRAPH_EMPTY_MIN_FILES) {
+      graphEmpty = 'graph_empty';
     }
     await repository.replaceEdges(repoId, edgeRows);
 
@@ -247,9 +257,10 @@ export async function runFullIndex(
     await repository.replaceFileFacts(repoId, factsBuf);
   }
 
-  // Clean pass → 'full'. Any degradation (soft budget, graph failure, or a
-  // parse error) keeps it honestly 'partial'.
-  const clean = !softBudgetReached && !graphFailed && parseDegraded.length === 0;
+  // Clean pass → 'full'. Any degradation (soft budget, graph failure, an
+  // empty-graph resolution failure, or a parse error) keeps it honestly
+  // 'partial'.
+  const clean = !softBudgetReached && !graphFailed && !graphEmpty && parseDegraded.length === 0;
   const status: IndexStatus = clean ? 'full' : 'partial';
   const stats: Record<string, unknown> = {
     ...walk.stats,
@@ -261,6 +272,7 @@ export async function runFullIndex(
     factsWritten: factsBuf.length,
     hotnessAvailable: false, // Option B — rank = pagerank only
     ...(graphFailed ? { graphFailed } : {}),
+    ...(graphEmpty ? { graphEmpty } : {}),
     softBudgetReached,
     parseDegraded,
     durationMs: Date.now() - startedAt,
@@ -281,7 +293,13 @@ export async function runFullIndex(
     filesIndexed,
     filesSkipped,
     durationMs: Date.now() - startedAt,
-    reason: softBudgetReached ? 'soft_budget' : graphFailed ? 'graph_failed' : undefined,
+    reason: softBudgetReached
+      ? 'soft_budget'
+      : graphFailed
+        ? 'graph_failed'
+        : graphEmpty
+          ? graphEmpty
+          : undefined,
   };
 }
 

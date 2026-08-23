@@ -19,10 +19,11 @@ import { extname, join } from 'node:path';
 import type { RepoRef } from '@devdigest/shared';
 import type { Container } from '../../../platform/container.js';
 import { withTimeout } from '../../../platform/resilience.js';
-import { parseSymbols, parseReferences, langForFile } from '../../../adapters/astgrep/index.js';
+import { parseSymbols, parseReferences, isParseable } from '../../../adapters/astgrep/index.js';
 import { extractEndpoints, extractCrons } from '../../../adapters/codeindex/extract.js';
 import {
   DEFAULT_REPO_MAP_TOKEN_BUDGET,
+  GRAPH_EMPTY_MIN_FILES,
   INDEXER_VERSION,
   MAX_PARSE_MS_PER_FILE,
   SUPPORTED_EXT,
@@ -144,8 +145,7 @@ export async function runIncremental(
   const parseDegraded: Array<{ file: string; reason: string }> = [];
 
   for (const relPath of changed) {
-    const lang = langForFile(relPath);
-    if (!lang) {
+    if (!isParseable(relPath)) {
       filesSkipped += 1;
       continue;
     }
@@ -188,6 +188,7 @@ export async function runIncremental(
           toSymbol: r.toSymbol,
           line: r.line,
           contentHash,
+          kind: r.kind,
         });
       }
       const endpoints = extractEndpoints(source);
@@ -213,11 +214,17 @@ export async function runIncremental(
   // parse). A future optimization could patch only the changed files' edges;
   // v1 favours simple correctness.
   let graphFailed: string | undefined;
+  let graphEmpty: string | undefined;
   let edgeRows: IndexerEdgeRow[] = [];
   try {
     const allFiles = (await walkClone(repo.clonePath)).files;
     const edges = await container.depgraph.buildEdges(repo.clonePath, allFiles);
     edgeRows = edges.map((e) => ({ fromFile: e.from, toFile: e.to }));
+    // See pipeline/full.ts — a cruise that didn't throw but resolved nothing
+    // over a non-trivial file set is a silent failure, not a healthy `[]`.
+    if (edgeRows.length === 0 && allFiles.length >= GRAPH_EMPTY_MIN_FILES) {
+      graphEmpty = 'graph_empty';
+    }
     await repository.replaceEdges(repoId, edgeRows);
     // reset: a changed decl-file can invalidate a prior resolution.
     await repository.resolveReferences(repoId, { reset: true });
@@ -239,7 +246,7 @@ export async function runIncremental(
   }
 
   // Keep 'full' only if the prior index was full AND this slice stayed clean.
-  const clean = parseDegraded.length === 0 && !graphFailed;
+  const clean = parseDegraded.length === 0 && !graphFailed && !graphEmpty;
   const status: IndexStatus = clean && state.status === 'full' ? 'full' : 'partial';
 
   const stats: Record<string, unknown> = {
@@ -250,6 +257,7 @@ export async function runIncremental(
     edgesWritten: edgeRows.length,
     hotnessAvailable: false,
     ...(graphFailed ? { graphFailed } : {}),
+    ...(graphEmpty ? { graphEmpty } : {}),
     parseDegraded,
     durationMs: Date.now() - startedAt,
   };

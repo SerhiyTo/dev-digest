@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, SmartDiff } from './brief.js';
+import { Intent, SmartDiff, BlastRadius, PrHistoryItem } from './brief.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -72,3 +72,32 @@ export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;
 export type SmartDiffResponse = z.infer<typeof SmartDiffResponse>;
+
+/**
+ * Blast-radius response for a PR: what else this diff can reach.
+ *
+ * Flat envelope (`BlastRadius` extended in place), not `{ blast, history }` —
+ * `mcp/src/blast/contract.ts` parses this body as `BlastRadius.extend({degraded,
+ * reason})`, so keeping it flat lets that file stay untouched; zod trims the
+ * `history` and roll-up fields it doesn't want to pay tokens for.
+ *
+ * `endpoints_affected`/`crons_affected` are top-level roll-ups that duplicate
+ * what `downstream[].endpoints_affected`/`crons_affected` already carry per
+ * symbol. They exist because on the degraded path `factsByFile` is absent, so
+ * endpoints/crons cannot be attributed to a symbol even though the engine still
+ * knows about them — per-symbol arrays are the *attributed* truth (empty when
+ * degraded), these top-level arrays are the *union* truth (always correct).
+ *
+ * `reason` is a required string (`''` means not degraded), not `.nullish()` —
+ * MCP's local `BlastRadiusResult` already declares `reason: z.string()`, and a
+ * nullish source field would fail that schema's `.parse()`.
+ */
+export const BlastRadiusResponse = BlastRadius.extend({
+  endpoints_affected: z.array(z.string()).default([]),
+  crons_affected: z.array(z.string()).default([]),
+  history: z.array(PrHistoryItem).default([]),
+  truncated: z.boolean().default(false),
+  degraded: z.boolean(),
+  reason: z.string(),
+});
+export type BlastRadiusResponse = z.infer<typeof BlastRadiusResponse>;

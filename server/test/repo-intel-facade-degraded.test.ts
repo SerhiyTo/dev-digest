@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { RepoIntelService } from '../src/modules/repo-intel/service.js';
 import type { RepoBasics } from '../src/modules/repo-intel/repository.js';
 import type { IndexState } from '../src/modules/repo-intel/types.js';
@@ -121,5 +124,101 @@ describe('RepoIntel facade — degraded contract (flag on, but no data)', () => 
   it('getCallerSignatures with empty changedFiles → []', async () => {
     const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: '/tmp' } });
     await expect(svc.getCallerSignatures('r1', [])).resolves.toEqual([]);
+  });
+});
+
+/**
+ * T3.4 — do not poison the phantom gate.
+ *
+ * `getUnresolvedReferences` is diff-scoped/ephemeral (astgrep `parseInvocationHeads`,
+ * which only ever emits call/new/JSX invocation heads — it never touches
+ * `parseReferences`'s new `kind: 'type'` usages). This locks down the actual
+ * cross-feature invariant T3.1 must not break: a bare type-position identifier
+ * with no matching declaration/import must NEVER be reported as a phantom,
+ * only a genuinely undeclared/unimported CALL should be.
+ */
+describe('RepoIntel facade — phantom gate excludes type usages', () => {
+  let root: string;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it('flags an unresolved call but never a bare type-position identifier', async () => {
+    root = await mkdtemp(join(tmpdir(), 'repo-intel-phantom-'));
+    const rel = 'src/thing.ts';
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(
+      join(root, rel),
+      'export function useThing(x: UndeclaredType): void {\n  undeclaredCall(x);\n}\n',
+      'utf8',
+    );
+
+    const svc = buildDegradedService({
+      flag: true,
+      basics: { id: 'r1', owner: 'a', name: 'b', clonePath: root },
+    });
+    const refs = await svc.getUnresolvedReferences('r1', [rel]);
+    const names = refs.map((r) => r.symbolName);
+
+    expect(names).toContain('undeclaredCall');
+    expect(names).not.toContain('UndeclaredType');
+  });
+});
+
+/**
+ * T2.4 — Vue/Nuxt auto-import carve-out (three tiers, `.vue` files only).
+ *
+ * `defineProps`/`computed`/`useI18n` are ordinary calls with no import
+ * statement in real `<script setup>` code — without the carve-out every one
+ * of them is a phantom-gate false positive. `useLocalThing` is seeded from
+ * the repo's own `composables/` directory (Nuxt's `imports.dirs`
+ * convention), not hardcoded. A genuinely undeclared call must still surface
+ * — the carve-out must not blanket-exempt `.vue` files from the gate.
+ */
+describe('RepoIntel facade — Vue/Nuxt auto-import carve-out', () => {
+  let root: string;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it('does not flag compiler macros, framework auto-imports, or local composables — but still flags a real phantom', async () => {
+    root = await mkdtemp(join(tmpdir(), 'repo-intel-vue-carveout-'));
+    await mkdir(join(root, 'composables'), { recursive: true });
+    await writeFile(
+      join(root, 'composables/useLocalThing.ts'),
+      'export function useLocalThing() { return 42; }\n',
+      'utf8',
+    );
+    const rel = 'Widget.vue';
+    await writeFile(
+      join(root, rel),
+      [
+        '<script setup lang="ts">',
+        'const props = defineProps<{ id: number }>()',
+        'const count = computed(() => props.id + 1)',
+        'const { t } = useI18n()',
+        'const thing = useLocalThing()',
+        'phantomCall()',
+        '</script>',
+        '<template><div>{{ count }}</div></template>',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const svc = buildDegradedService({
+      flag: true,
+      basics: { id: 'r1', owner: 'a', name: 'b', clonePath: root },
+    });
+    const refs = await svc.getUnresolvedReferences('r1', [rel]);
+    const names = refs.map((r) => r.symbolName);
+
+    expect(names).not.toContain('defineProps');
+    expect(names).not.toContain('computed');
+    expect(names).not.toContain('useI18n');
+    expect(names).not.toContain('useLocalThing');
+    expect(names).toContain('phantomCall');
   });
 });

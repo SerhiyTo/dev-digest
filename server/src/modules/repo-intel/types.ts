@@ -69,6 +69,11 @@ export interface BlastCallerRow {
   line: number;
   /** file_rank.rank of the caller file (0 in the degraded/ripgrep path). */
   rank: number;
+  /**
+   * 'call' | 'type' — from `references.kind` on the persistent path; absent
+   * on the degraded/ripgrep path (which only ever finds call/new/JSX usage).
+   */
+  kind?: 'call' | 'type';
 }
 
 export interface BlastResult {

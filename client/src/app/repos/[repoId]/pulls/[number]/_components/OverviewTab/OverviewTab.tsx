@@ -9,14 +9,16 @@ import { s } from "./styles";
 interface OverviewTabProps {
   prBody: string | null | undefined;
   prId: string | null;
+  repoFullName?: string | null;
+  headSha?: string | null;
 }
 
-export function OverviewTab({ prBody, prId }: OverviewTabProps) {
+export function OverviewTab({ prBody, prId, repoFullName, headSha }: OverviewTabProps) {
   return (
     <>
       <div style={s.cardGrid}>
         <IntentCard prId={prId} />
-        <BlastRadiusCard />
+        <BlastRadiusCard prId={prId} repoFullName={repoFullName} headSha={headSha} />
       </div>
 
       {prBody && (

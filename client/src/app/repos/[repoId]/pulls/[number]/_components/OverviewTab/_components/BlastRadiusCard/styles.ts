@@ -8,12 +8,18 @@ export const s = {
     padding: 18,
     display: "flex",
     flexDirection: "column",
+    gap: 14,
     minHeight: 240,
   } satisfies CSSProperties,
 
-  body: {
-    display: "grid",
-    placeItems: "center",
-    flex: 1,
+  loading: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  } satisfies CSSProperties,
+
+  noDownstream: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
   } satisfies CSSProperties,
 } as const;

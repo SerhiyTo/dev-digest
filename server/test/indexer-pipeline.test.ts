@@ -128,11 +128,15 @@ interface MiniGit {
     head: string,
   ) => Promise<string[]>;
 }
-function makeContainer(git: MiniGit): Container {
+function makeContainer(
+  git: MiniGit,
+  opts?: { edges?: Array<{ from: string; to: string }> },
+): Container {
   return {
     git,
-    // T3 adapters — stubbed: empty graph (rank degrades to flat) + char/4 tokens.
-    depgraph: { buildEdges: async () => [] },
+    // T3 adapters — stubbed: empty graph by default (rank degrades to flat) +
+    // char/4 tokens. Pass opts.edges to simulate a cruise that resolved edges.
+    depgraph: { buildEdges: async () => opts?.edges ?? [] },
     tokenizer: { count: (text: string) => Math.ceil(text.length / 4) },
   } as unknown as Container;
 }
@@ -193,9 +197,14 @@ describe('runFullIndex', () => {
     expect(symbolNames).toContain('beta');
     expect(symbolNames).toContain('caller');
 
-    // References include `alpha` called from both files.
+    // References include `alpha` called from both files, tagged kind: 'call'.
     const refNames = stub.references.map((r) => (r as { toSymbol: string }).toSymbol);
     expect(refNames).toContain('alpha');
+    const alphaRefs = stub.references.filter(
+      (r) => (r as { toSymbol: string }).toSymbol === 'alpha',
+    );
+    expect(alphaRefs.length).toBeGreaterThan(0);
+    for (const r of alphaRefs) expect((r as { kind: string }).kind).toBe('call');
 
     // Index state persisted with the expected shape.
     const state = stub.getState();
@@ -204,6 +213,80 @@ describe('runFullIndex', () => {
     expect(state!.indexerVersion).toBe(INDEXER_VERSION);
     expect(state!.status).toBe('full');
     expect(state!.filesIndexed).toBe(2);
+  });
+
+  it('persists a type-position usage with kind="type" (T3.1/T3.2)', async () => {
+    await writeFileAt(
+      root,
+      'src/types.ts',
+      `export interface Widget { id: number }\n`,
+    );
+    await writeFileAt(
+      root,
+      'src/consumer.ts',
+      `import type { Widget } from './types';\nexport function useWidget(w: Widget): Widget { return w; }\n`,
+    );
+
+    const stub = makeRepoStub({
+      basics: { id: 'r1', owner: 'acme', name: 'app', clonePath: root },
+    });
+    const container = makeContainer({
+      currentHead: async () => 'sha-head',
+      diffNameOnly: async () => [],
+    });
+
+    await runFullIndex(container, stub.repo, { repoId: 'r1' });
+
+    const widgetRefs = stub.references.filter(
+      (r) => (r as { toSymbol: string }).toSymbol === 'Widget',
+    );
+    expect(widgetRefs.length).toBeGreaterThan(0);
+    for (const r of widgetRefs) expect((r as { kind: string }).kind).toBe('type');
+  });
+
+  it('walks, parses and persists symbols/references from a .vue SFC (T2 Phase 2), not counted as skipped', async () => {
+    await writeFileAt(
+      root,
+      'src/composables/useThing.ts',
+      `export function useThing() { return 1; }\n`,
+    );
+    await writeFileAt(
+      root,
+      'src/Widget.vue',
+      [
+        '<script setup lang="ts">',
+        'import { useThing } from "./composables/useThing"',
+        '',
+        'const thing = useThing();',
+        '</script>',
+        '<template><div>{{ thing }}</div></template>',
+        '',
+      ].join('\n'),
+    );
+
+    const stub = makeRepoStub({
+      basics: { id: 'r-vue', owner: 'acme', name: 'app', clonePath: root },
+    });
+    const container = makeContainer({
+      currentHead: async () => 'sha-vue',
+      diffNameOnly: async () => [],
+    });
+
+    const result = await runFullIndex(container, stub.repo, { repoId: 'r-vue' });
+
+    // A well-formed .vue is PARSED, not skipped — isParseable() widens the
+    // langForFile-based gate so it reaches parseSymbols/parseReferences.
+    expect(result.filesIndexed).toBe(2);
+    expect(result.filesSkipped).toBe(0);
+
+    const useThingRefs = stub.references.filter(
+      (r) => (r as { toSymbol: string; fromPath: string }).toSymbol === 'useThing'
+        && (r as { fromPath: string }).fromPath === 'src/Widget.vue',
+    );
+    expect(useThingRefs.length).toBeGreaterThan(0);
+    // Line 4 of the joined fixture above — file-absolute, not the offset
+    // inside the extracted <script setup> block.
+    expect((useThingRefs[0] as { line: number }).line).toBe(4);
   });
 
   it('returns degraded when the repo has no clonePath (writes a degraded state row)', async () => {
@@ -253,6 +336,71 @@ describe('runFullIndex', () => {
     expect(result.filesIndexed).toBe(0);
     expect(result.reason).toBe('no_files');
     expect(stub.getState()!.lastIndexedSha).toBe('sha-empty');
+  });
+
+  it('T1.3: a cruise that resolves zero edges over a non-trivial file set is marked graph_empty, not full', async () => {
+    // GRAPH_EMPTY_MIN_FILES is 3 — three supported files with imports between
+    // them is exactly the shape that should have produced edges.
+    await writeFileAt(root, 'src/a.ts', `export const a = 1;\n`);
+    await writeFileAt(root, 'src/b.ts', `export const b = 2;\n`);
+    await writeFileAt(root, 'src/c.ts', `export const c = 3;\n`);
+
+    const stub = makeRepoStub({
+      basics: { id: 'r4', owner: 'acme', name: 'app', clonePath: root },
+    });
+    const container = makeContainer({
+      currentHead: async () => 'sha-graph-empty',
+      diffNameOnly: async () => [],
+    });
+
+    const result = await runFullIndex(container, stub.repo, { repoId: 'r4' });
+
+    expect(result.status).toBe('partial');
+    expect(result.reason).toBe('graph_empty');
+    const state = stub.getState();
+    expect(state!.status).toBe('partial');
+  });
+
+  it('T1.3: does NOT flag graph_empty below the file threshold (a 2-file repo legitimately has no edges)', async () => {
+    // Same shape as the very first test in this file — 2 supported files,
+    // buildEdges() stubbed to [] — must stay 'full'.
+    await writeFileAt(root, 'src/only-a.ts', `export const a = 1;\n`);
+    await writeFileAt(root, 'src/only-b.ts', `export const b = 2;\n`);
+
+    const stub = makeRepoStub({
+      basics: { id: 'r5', owner: 'acme', name: 'app', clonePath: root },
+    });
+    const container = makeContainer({
+      currentHead: async () => 'sha-below-threshold',
+      diffNameOnly: async () => [],
+    });
+
+    const result = await runFullIndex(container, stub.repo, { repoId: 'r5' });
+
+    expect(result.status).toBe('full');
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('T1.3: does NOT flag graph_empty when the cruise actually resolved edges', async () => {
+    await writeFileAt(root, 'src/a.ts', `export const a = 1;\n`);
+    await writeFileAt(root, 'src/b.ts', `export const b = 2;\n`);
+    await writeFileAt(root, 'src/c.ts', `export const c = 3;\n`);
+
+    const stub = makeRepoStub({
+      basics: { id: 'r6', owner: 'acme', name: 'app', clonePath: root },
+    });
+    const container = makeContainer(
+      {
+        currentHead: async () => 'sha-with-edges',
+        diffNameOnly: async () => [],
+      },
+      { edges: [{ from: 'src/a.ts', to: 'src/b.ts' }] },
+    );
+
+    const result = await runFullIndex(container, stub.repo, { repoId: 'r6' });
+
+    expect(result.status).toBe('full');
+    expect(result.reason).toBeUndefined();
   });
 });
 
@@ -380,6 +528,31 @@ describe('runIncremental', () => {
     // counter is prior (5) + this slice's filesIndexed (1).
     expect(stub.getState()!.filesIndexed).toBe(6);
     expect(stub.getState()!.lastIndexedSha).toBe('sha-new');
+  });
+
+  it('T1.3: slice path marks graph_empty when the rebuilt graph resolves zero edges over enough files', async () => {
+    await writeFileAt(root, 'src/a.ts', `export const a = 1;\n`);
+    await writeFileAt(root, 'src/b.ts', `export const b = 2;\n`);
+    await writeFileAt(
+      root,
+      'src/changed.ts',
+      `export function fresh(x: number) { return x; }\n`,
+    );
+
+    const stub = makeRepoStub({
+      basics: { id: 'r1', owner: 'acme', name: 'app', clonePath: root },
+      initialState: makeInitialState({ status: 'full' }),
+    });
+    const container = makeContainer({
+      currentHead: async () => 'sha-new',
+      diffNameOnly: async () => ['src/changed.ts'],
+    });
+
+    const result = await runIncremental(container, stub.repo, { repoId: 'r1' });
+
+    expect(result.status).toBe('partial');
+    const state = stub.getState();
+    expect(state!.status).toBe('partial');
   });
 
   it('large diff (> threshold) → delegates to runFullIndex', async () => {

@@ -1,18 +1,73 @@
 {
+  "title": "Blast radius",
   "stat": {
-    "symbols": "symbols",
-    "callers": "callers",
-    "endpoints": "endpoints",
-    "crons": "cron/jobs"
+    "symbols": "{count, plural, one {# symbol} other {# symbols}}",
+    "callers": "{count, plural, one {# usage} other {# usages}}",
+    "endpoints": "{count, plural, one {# endpoint} other {# endpoints}}",
+    "crons": "{count, plural, one {# cron job} other {# cron jobs}}"
   },
+  "statTruncated": {
+    "callers": "{count}+ usages"
+  },
+  "callerCount": {
+    "call": "{count, plural, =0 {no callers} one {# caller} other {# callers}}",
+    "type": "{count, plural, one {# type usage} other {# type usages}}",
+    "mixed": "{count, plural, one {# usage} other {# usages}}"
+  },
+  "noDownstream": "{count, plural, one {# changed symbol} other {# changed symbols}}, no downstream callers found.",
   "view": {
-    "tree": "tree",
-    "graph": "graph"
+    "tree": "Tree",
+    "graph": "Graph",
+    "ariaLabel": "Blast radius view"
   },
-  "callerCount": "{count} callers",
-  "noDownstream": "{count} changed symbol(s), no downstream callers found.",
+  "symbols": {
+    "ariaLabel": "Changed symbols",
+    "toggle": "Toggle callers of {name}",
+    "typeMarker": "type"
+  },
+  "impact": {
+    "endpoints": "Affected endpoints",
+    "crons": "Affected cron jobs",
+    "none": "No endpoints or cron jobs traced to these callers."
+  },
   "graph": {
     "empty": "No downstream callers to graph.",
-    "ariaLabel": "Blast radius graph"
+    "ariaLabel": "Blast radius graph: {symbols} changed symbols reaching {files} files",
+    "more": "+{count} more",
+    "hint": "Graph is a visual summary — use Tree above for the full, keyboard-navigable data."
+  },
+  "history": {
+    "title": "Prior PRs touching these files",
+    "toggle": "Toggle prior PRs list",
+    "empty": "No prior PRs overlap these files.",
+    "overlap": "{count, plural, one {# file} other {# files}} overlap",
+    "status": {
+      "needs_review": "needs review",
+      "reviewed": "reviewed",
+      "stale": "stale",
+      "open": "open",
+      "closed": "closed",
+      "merged": "merged",
+      "unknown": "unknown"
+    }
+  },
+  "empty": {
+    "title": "No blast radius to show.",
+    "body": "This PR does not change any indexed symbols."
+  },
+  "error": {
+    "title": "Could not load the blast radius."
+  },
+  "degraded": {
+    "badge": "partial",
+    "reason": {
+      "no_data": "The repository has not been indexed yet.",
+      "no_files": "This PR does not touch any files.",
+      "flag_off": "Blast radius indexing is turned off for this repository.",
+      "index_failed": "The last index attempt failed.",
+      "index_partial": "The repository index is incomplete.",
+      "repo_too_large": "This repository is too large for a full index.",
+      "unknown": "This result is best-effort — the repository index is incomplete."
+    }
   }
 }

@@ -130,10 +130,10 @@ check_typecheck() {
     return
   fi
   local pkg failed=""
-  for pkg in server client reviewer-core; do
+  for pkg in server client reviewer-core mcp; do
     touches "^$pkg/" || continue
     local runner="pnpm"
-    [ "$pkg" = "reviewer-core" ] && runner="npm"
+    case "$pkg" in reviewer-core|mcp) runner="npm" ;; esac
     if ! (cd "$pkg" && "$runner" run typecheck >"$WORK/tc-$pkg.log" 2>&1); then
       failed="$failed $pkg"
     fi

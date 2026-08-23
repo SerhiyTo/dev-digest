@@ -120,6 +120,20 @@
       "when": 1786290955818,
       "tag": "0016_clever_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786845306435,
+      "tag": "0017_old_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786886992840,
+      "tag": "0018_groovy_warbound",
+      "breakpoints": true
     }
   ]
 }

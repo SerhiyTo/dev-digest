@@ -53,6 +53,16 @@ describe('walkClone', () => {
     expect(result.files).toEqual(['src/index.ts']);
   });
 
+  it('includes .vue files (T2 Phase 2) alongside .md/.json still excluded', async () => {
+    await writeFileAt(root, 'README.md', '# nope');
+    await writeFileAt(root, 'data.json', '{}');
+    await writeFileAt(root, 'src/index.ts', 'export {}');
+    await writeFileAt(root, 'src/Widget.vue', '<script setup lang="ts"></script>');
+
+    const result = await walkClone(root);
+    expect(result.files).toEqual(['src/Widget.vue', 'src/index.ts']);
+  });
+
   it('skips EXCLUDED_DIRS (node_modules, dist, .git, etc.)', async () => {
     await writeFileAt(root, 'src/index.ts', 'export {}');
     for (const d of EXCLUDED_DIRS) {
