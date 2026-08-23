@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Verdict, Finding } from './findings.js';
 import { EvalRun, EvalOwnerKind, Conformance, Provider, CiFailOn } from './knowledge.js';
+import { ProjectContextPayload } from './context.js';
 
 /**
  * A4 — Eval / CI / Compose / Conformance API contracts (L06).
@@ -165,6 +166,7 @@ export const AgentManifest = z.object({
   // CI gate policy (see CiFailOn) — when the posted review should BLOCK
   // (REQUEST_CHANGES + fail the check) vs just comment. Default: block on critical.
   ci_fail_on: CiFailOn.default('critical'),
+  project_context: ProjectContextPayload.nullish(),
 });
 export type AgentManifest = z.infer<typeof AgentManifest>;
 /** Caller-facing input type — `.default()` fields stay optional. */

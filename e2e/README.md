@@ -100,3 +100,5 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |
 | `06-onboarding` | `/onboarding` → add-repository form renders (no submit) |
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
+| `08-conventions` | Skills Lab → Conventions → accept a seeded candidate → create-skill modal opens pre-filled |
+| `09-project-context` | Project Context → fixture documents discovered → preview a document → agent Context tab → attach → badge + token footer → `used_by_agents` back on the list → PR #482's seeded run trace: `Specs read` + the project-context prompt segment |

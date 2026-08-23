@@ -48,7 +48,8 @@
       "skills": "Skills",
       "evals": "Evals",
       "stats": "Stats",
-      "ci": "CI"
+      "ci": "CI",
+      "context": "Context"
     }
   },
   "config": {
@@ -97,5 +98,30 @@
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."
+  },
+  "context": {
+    "title": "Project context",
+    "attachedCount": "{attached} attached · {total} in {repo}",
+    "scopeNote": "Showing the documents found in {repo}. An attachment is stored as a file path, not a link to a repository — every run resolves those paths against the repository the run is on.",
+    "repoUnknown": "the selected repository",
+    "filterPlaceholder": "Filter documents…",
+    "orderHint": "Order matters — earlier documents appear earlier in the assembled prompt. Toggle to attach; drag a row or use the arrows to reorder.",
+    "missing": "not in this repo",
+    "missingTitle": "This path is not in the document list for {repo}. It may be attached from a different repository, or it may have been deleted, renamed, or dropped beyond the discovery cap — this page cannot tell which. The attachment is kept, and each run resolves it against the repository that run is on.",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "tokenEstimate": "≈{tokens, number} tokens per run — an estimate, not an exact count",
+    "estimatePending": "Estimating tokens…",
+    "estimateUnavailable": "Token estimate unavailable",
+    "limitReached": "Limit reached — {max} documents",
+    "saveErrorLimit": "Not saved — an agent or skill may attach at most {max} documents. Detach one first.",
+    "saveErrorInvalidPath": "Not saved — one of those paths is not a project document path.",
+    "saveErrorOwnerGone": "Not saved — this agent or skill no longer exists. Reload the page.",
+    "saveErrorServer": "Not saved — the server could not complete the change. Try again.",
+    "saveErrorUnknown": "Not saved — {message}",
+    "loadError": "Could not load the project documents or the current attachments. Nothing is editable until they load — saving now would overwrite the existing attachments.",
+    "noRepo": "No repository selected",
+    "noDocumentsTitle": "No documents to attach",
+    "noDocumentsBody": "This repository has no markdown under docs/, specs/, plans/ or insights/, or it has not been cloned yet. Open Project Context to check."
   }
 }

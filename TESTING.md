@@ -50,6 +50,20 @@ drives routes end-to-end: reviews + run lifecycle (incl. grounding), agents CRUD
 repo-intel symbol clamping, pulls comments, settings models. They self-skip when
 Docker is unavailable.
 
+> **Read the skip count, not just the exit code.** That self-skip is a
+> `docker info` probe with a 5000 ms timeout, cached for the process
+> (`server/test/helpers/pg.ts:23-33`), and it is the *only* skip mechanism in
+> the whole integration lane — so every skipped file is a lost probe race, never
+> a legitimate guard. Under file parallelism the probe can lose that race and
+> the lane **still exits 0**: during the L05 build a parallel run reported
+> `82 passed | 44 skipped`, exit 0, where the same tree serialized reported
+> `126 passed, 0 skipped`. Run it as
+> `pnpm exec vitest run .it.test --no-file-parallelism` when the result has to
+> mean something; `scripts/verify-l04.sh:56` does **not** pass that flag yet, so
+> the merge gate inherits both failure modes — a false green, and a red run on
+> an unchanged tree that trains people to re-run until it passes. A three-digit
+> `transform` time in a vitest summary means the machine, not the diff.
+
 **reviewer-core** — the pure engine: `toReview` selection, prompt construction,
 and a `run` with a stubbed model → grounded findings. No DB / GitHub / FS.
 

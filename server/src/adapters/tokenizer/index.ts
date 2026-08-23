@@ -8,13 +8,18 @@
  * lazy-initialised (loading the BPE ranks is the heavy part) and any failure
  * falls back to the `ceil(chars / 4)` heuristic — the renderer must never throw.
  *
- * Scope: in-process, ONLY under modules/repo-intel. Swappable in tests via a
- * mock counter (ContainerOverrides.tokenizer).
+ * Scope: in-process. Started under modules/repo-intel; project-context also uses
+ * it to price an assembled block, and reports `estimator()` alongside the count
+ * so a caller can say whether the number came from the encoder or the fallback.
+ * Swappable in tests via a mock counter (ContainerOverrides.tokenizer).
  */
 import { getEncoding, type Tiktoken } from 'js-tiktoken';
 
+export type TokenEstimator = 'cl100k_base' | 'heuristic';
+
 export interface Tokenizer {
   count(text: string): number;
+  estimator?(): TokenEstimator;
 }
 
 /** Heuristic fallback used before/instead of a real encoder. */
@@ -36,5 +41,9 @@ export class TiktokenTokenizer implements Tokenizer {
       this.broken = true;
       return approxTokens(text);
     }
+  }
+
+  estimator(): TokenEstimator {
+    return this.broken ? 'heuristic' : 'cl100k_base';
   }
 }

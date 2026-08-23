@@ -229,6 +229,34 @@ export interface GitClient {
   clonePathFor(repo: RepoRef): string;
 }
 
+// ---------- CloneDocs (project-context markdown in a clone) ----------
+export interface CloneDocEntry {
+  /** Repo-relative POSIX path, e.g. `docs/architecture.md`. */
+  path: string;
+}
+
+export type CloneDocReadFailure =
+  | 'invalid_path'
+  | 'missing'
+  | 'out_of_root'
+  | 'unreadable';
+
+export type CloneDocRead =
+  | { ok: true; text: string; truncated?: boolean }
+  | { ok: false; reason: CloneDocReadFailure };
+
+/**
+ * Read-only view over the markdown documents in a repository clone, at its
+ * default branch. Additive alongside `GitClient`, which it does not touch.
+ *
+ * `cloneRoot` is the absolute directory the caller already holds
+ * (`repos.clone_path`); implementations never derive it from a `RepoRef`.
+ */
+export interface CloneDocsSource {
+  list(cloneRoot: string): Promise<CloneDocEntry[]>;
+  read(cloneRoot: string, path: string): Promise<CloneDocRead>;
+}
+
 // ---------- CodeIndex (ripgrep + tree-sitter) ----------
 export interface CodeMatch {
   path: string;

@@ -13,12 +13,45 @@
     "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
   },
   "mode": {
-    "preview": "preview",
-    "edit": "edit"
+    "preview": "preview"
   },
   "editor": {
     "loadError": "Couldn’t load spec",
-    "save": "Save",
     "saving": "Saving…"
+  },
+  "page": {
+    "crumbWorkspace": "Workspace",
+    "crumbContext": "Project Context",
+    "headingPrefix": "Project context for ",
+    "repoFallback": "this repository",
+    "documentCount": "{count, plural, =0 {No documents} one {# document} other {# documents}} discovered in the clone",
+    "omitted": "{count, plural, one {# more document beyond the discovery cap} other {# more documents beyond the discovery cap}}",
+    "lastSynced": "Last refreshed {ago} ago",
+    "neverSynced": "Never refreshed",
+    "loadError": "Couldn’t load this repository’s project context."
+  },
+  "notCloned": {
+    "title": "{repo} isn’t cloned yet",
+    "body": "Project documents are read from the repository clone on its default branch. Clone or refresh {repo}, then resync."
+  },
+  "noDocuments": {
+    "title": "No project documents found",
+    "body": "Nothing matched under {roots}. Add markdown (.md or .mdx) under one of those four roots and resync."
+  },
+  "list": {
+    "filterPlaceholder": "Filter documents…",
+    "noMatches": "No document matches that filter.",
+    "usedBy": "{count, plural, one {# agent} other {# agents}}",
+    "usedByTitle": "Attached to: {agents}"
+  },
+  "preview": {
+    "placeholderTitle": "Select a document",
+    "placeholderBody": "Pick a document from the list to preview it here.",
+    "unreadableTitle": "Couldn’t read {path}",
+    "truncated": "This document is large — the preview shows only its first part.",
+    "reasonNotFound": "The file is no longer in the clone. Resync to refresh the list.",
+    "reasonUnreadable": "This document is listed in the clone but its contents could not be read. Check the file’s permissions and encoding in the repository.",
+    "reasonNotCloned": "This repository has no local clone, so its documents cannot be read.",
+    "reasonUnknown": "The file could not be read from the repository clone."
   }
 }

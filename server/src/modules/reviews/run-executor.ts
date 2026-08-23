@@ -34,6 +34,25 @@ export type RunOutcome = {
   raw: Review;
 };
 
+const SKIPPED_DOC_LABEL_DISALLOWED = /[^A-Za-z0-9._/-]/g;
+const SKIPPED_DOC_LOG_CHAR_BUDGET = 2_000;
+
+function skippedProjectDocsLine(
+  skipped: readonly { path: string; reason: string }[],
+): string {
+  const rendered: string[] = [];
+  let used = 0;
+  for (const { path, reason } of skipped) {
+    const entry = `${path.replace(SKIPPED_DOC_LABEL_DISALLOWED, '')} (${reason})`;
+    if (used + entry.length > SKIPPED_DOC_LOG_CHAR_BUDGET) break;
+    used += entry.length + 2;
+    rendered.push(entry);
+  }
+  const elided = skipped.length - rendered.length;
+  const parts = elided > 0 ? [...rendered, `+${elided} more`] : rendered;
+  return `project context skipped: ${parts.join('; ')}`;
+}
+
 /**
  * Owns the background execution of queued agent runs (extracted from
  * ReviewService; behaviour unchanged). Loads the diff + intent once, then
@@ -203,6 +222,23 @@ export class ReviewRunExecutor {
         skipped: links.filter((l) => !l.skill.enabled).map((l) => l.skill.name),
       });
 
+      const projectContext = await this.container.projectContext.resolveForRun(agent.id, {
+        owner: repo.owner,
+        name: repo.name,
+        clonePath: repo.clonePath,
+      });
+      runLog.event(
+        'info',
+        `project context: ${projectContext.specsRead.length} injected, ${projectContext.skipped.length} skipped`,
+        {
+          attached: projectContext.specsRead,
+          skipped: projectContext.skipped.map((s) => `${s.path} (${s.reason})`),
+        },
+      );
+      if (projectContext.skipped.length > 0) {
+        runLog.info(skippedProjectDocsLine(projectContext.skipped));
+      }
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -221,6 +257,7 @@ export class ReviewRunExecutor {
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
         ...(skills.length ? { skills } : {}),
+        ...(projectContext.specs.length ? { specs: projectContext.specs } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
@@ -301,7 +338,7 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        specs_read: projectContext.specsRead,
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),

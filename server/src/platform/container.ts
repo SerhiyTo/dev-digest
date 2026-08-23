@@ -3,6 +3,7 @@ import type {
   SecretsProvider,
   GitHubClient,
   GitClient,
+  CloneDocsSource,
   CodeIndex,
   Embedder,
   LLMProvider,
@@ -15,6 +16,16 @@ import { LocalSecretsProvider } from '../adapters/secrets/local.js';
 import { LocalNoAuthProvider } from '../adapters/auth/local.js';
 import { OctokitGitHubClient } from '../adapters/github/octokit.js';
 import { SimpleGitClient } from '../adapters/git/simple-git.js';
+import { FsCloneDocs } from '../adapters/clonedocs/index.js';
+import {
+  DOC_EXTENSIONS,
+  DOC_ROOTS,
+  EXCLUDED_DIRS,
+} from '../modules/context/constants.js';
+import { isProjectDocPath } from '../modules/context/paths.js';
+import type { ProjectContext } from '../modules/context/types.js';
+import { ContextRepository } from '../modules/context/repository.js';
+import { ContextService } from '../modules/context/service.js';
 import { RipgrepCodeIndex } from '../adapters/codeindex/ripgrep.js';
 import { OpenAIProvider } from '../adapters/llm/openai.js';
 import { AnthropicProvider } from '../adapters/llm/anthropic.js';
@@ -42,6 +53,7 @@ export interface ContainerOverrides {
   auth?: AuthProvider;
   github?: GitHubClient;
   git?: GitClient;
+  cloneDocs?: CloneDocsSource;
   codeIndex?: CodeIndex;
   embedder?: Embedder;
   /** Pre-built providers by id (skip key lookup). */
@@ -62,6 +74,7 @@ export class Container {
   readonly runBus: RunBus;
 
   private _git?: GitClient;
+  private _cloneDocs?: CloneDocsSource;
   private _github?: GitHubClient;
   private _codeIndex?: CodeIndex;
   private _embedder?: Embedder;
@@ -73,6 +86,7 @@ export class Container {
   private _agentsRepo?: AgentsRepository;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
+  private _projectContext?: ProjectContext;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
   private _priceBook?: PriceBook;
@@ -90,6 +104,17 @@ export class Container {
     if (this.overrides.git) return this.overrides.git;
     this._git ??= new SimpleGitClient(this.config.cloneDir);
     return this._git;
+  }
+
+  get cloneDocs(): CloneDocsSource {
+    if (this.overrides.cloneDocs) return this.overrides.cloneDocs;
+    this._cloneDocs ??= new FsCloneDocs({
+      docRoots: DOC_ROOTS,
+      docExtensions: DOC_EXTENSIONS,
+      excludedDirs: EXCLUDED_DIRS,
+      isDocPath: isProjectDocPath,
+    });
+    return this._cloneDocs;
   }
 
   get agentsRepo(): AgentsRepository {
@@ -115,6 +140,14 @@ export class Container {
     if (this.overrides.repoIntel) return this.overrides.repoIntel;
     this._repoIntel ??= new RepoIntelService(this);
     return this._repoIntel;
+  }
+
+  get projectContext(): ProjectContext {
+    return (this._projectContext ??= new ContextService({
+      store: new ContextRepository(this.db),
+      docs: this.cloneDocs,
+      tokens: this.tokenizer,
+    }));
   }
 
   /** Import-graph builder (dependency-cruiser). T3 indexer pipeline only. */

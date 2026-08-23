@@ -1,7 +1,13 @@
 # Spec: Project Context
 Spec ID: SPEC-01
-Status: approved
+Status: implemented
 Supersedes: none
+Verified: 2026-08-23 — 43 of 48 criteria met in this repository; AC-41 and AC-42
+are not implementable here and AC-40, AC-43 and AC-44 ship their in-tree half
+only, all five for the reason recorded under **Parity with the CI runner** below.
+Two honesty notes came out of the verification: AC-10 is met literally but not in
+substance, and the AC-32 log line is bounded where the edge-case table said it
+names each. Both are recorded in place and carried as `Q-3` and `Q-4`.
 
 ## Problem and user
 
@@ -154,6 +160,16 @@ whose name is already reserved in the contract layer
   state, and the client shall display the time of the last successful refresh.
   *Observed by*: a document added to the clone appearing in the list, and the
   rendered timestamp.
+  *Implementation note (2026-08-23)* — **met literally, not in substance.**
+  Discovery is a stateless live walk, so `last_synced_at` is generated at the
+  start of every read (`server/src/modules/context/service.ts:182,206`) and
+  `resync()` is `list()` verbatim. The refresh half of the criterion holds — a
+  document added to the clone does appear — but the timestamp is the time of
+  *this* read, not of "the last successful refresh", so it always renders as the
+  present moment and the client's `neverSynced` string
+  (`client/messages/en/context.json:30`) is unreachable for any cloned
+  repository. Persisting the real value needs a column the schema does not
+  have. Recorded as `Q-3`.
 - **AC-11 (US-1)**: The system shall report, for each listed document, the number
   of agents that currently depend on it, counting an agent that attaches it
   directly and an agent one of whose linked skills attaches it, each agent once.
@@ -291,6 +307,22 @@ whose name is already reserved in the contract layer
 
 **Parity with the CI runner**
 
+*These five criteria are the whole of what this feature did not deliver, and the
+reason is the same for all five (verified 2026-08-23).* **No CI dispatch exists
+in this repository.** `AgentManifest` — including the `project_context` payload
+field this feature added — has no producer and no reader anywhere in
+`server/src`; it is contract and schema only, and the runner that would consume
+it is bundled outside this tree. AC-41 and AC-42 describe the runner's own
+behaviour and nothing here can observe them. AC-40, AC-43 and AC-44 ship their
+in-tree half: the resolver, the merge order, the caps, the path sanitising, the
+untrusted wrapping, the `.nullish()` payload field that makes an old runner
+ignore it, and the byte-identical-when-absent property are all delivered and
+tested — but no dispatch exists to produce a CI job payload to compare against a
+studio run. `docs/plans/2026-08-22-project-context.md` repeats all five verbatim
+under its `## Out of scope`, and this spec agrees with it: they are out of scope
+for the delivered feature, not gaps in it. US-7 is therefore the one user story
+whose outcome is not yet reachable; the other six are.
+
 - **AC-40 (US-7)**: WHEN the studio server dispatches a CI review job, it shall
   resolve the attachments, read the documents and assemble the
   `## Project context` block by the same merge order, the same source and the
@@ -359,7 +391,7 @@ whose name is already reserved in the contract layer
 | Document containing raw HTML or a `javascript:` link | Rendered inert in the preview — AC-6 |
 | Same document attached to both the agent and one of its skills | Injected once, at its first position — AC-27 |
 | Same document attached to two of the agent's skills | Injected once, at its first position — AC-27 |
-| Agent with attachments run against a repository that has none of them | Every attachment omitted, run proceeds, log names each — AC-32 |
+| Agent with attachments run against a repository that has none of them | Every attachment omitted, run proceeds, log names each — AC-32. **As shipped the naming is bounded**: the skipped line carries a 2,000-character budget and elides the remainder as `+N more` (`server/src/modules/reviews/run-executor.ts:38-53`), because the line is persisted inside the jsonb run trace. At realistic path lengths all 20 attachments fit; only a pathological set elides — `Q-4` |
 | Agent with no attachments at all | Prompt byte-identical to the pre-feature prompt — AC-31 |
 | Tiktoken BPE ranks fail to load | Heuristic fallback, reported as `heuristic` — AC-24 |
 | Twenty-first attachment | Rejected with 409 — AC-16 |
@@ -451,6 +483,15 @@ naming**
 - The run log shall carry an injected/skipped event mirroring the existing
   `skills: N attached` event shape (`server/src/modules/reviews/run-executor.ts:203-207`),
   including the attached and skipped paths — AC-36, AC-32.
+  *Implementation note (2026-08-23)*: the mirrored event shape is not sufficient
+  on its own. `RunLogger.logFor` persists only `t`, `kind` and `msg` and drops
+  the structured `data` payload (`server/src/platform/run-logger.ts:94-96`), so
+  paths carried in `data` reach the live SSE stream and never the persisted
+  trace, which is what both criteria are *Observed by*. What ships is therefore
+  two events: the counted `project context: N injected, M skipped`, and a second
+  `project context skipped: <path> (<reason>)` line whose text carries the names.
+  Both are asserted against `run_traces.trace.log`
+  (`server/test/reviews-context.it.test.ts:231-233,387-391`).
 - Discovery failures shall be reported with a reason the client can render, never
   as an empty list — AC-7, AC-9.
 
@@ -551,10 +592,13 @@ server-side; it crosses no boundary of its own.
 
 ## Open questions
 
-**None outstanding.** Every `Q-n` is resolved and every `UX-n` is ruled on, which
-is what allowed the `draft` → `approved` transition. The record below is kept
-rather than deleted, because the reasoning — including the one ruling that was
-reversed — is what a later reader needs.
+**None were outstanding at `approved`.** Every `Q-n` below is resolved and every
+`UX-n` is ruled on, which is what allowed the `draft` → `approved` transition.
+The record is kept rather than deleted, because the reasoning — including the one
+ruling that was reversed — is what a later reader needs. Two further questions,
+`Q-3` and `Q-4`, were opened by the **verification** of the built feature on
+2026-08-23; they did not exist at `approved` and did not block `implemented`,
+and each names its default.
 
 | Question | Resolution | Effect on this spec |
 |---|---|---|
@@ -569,6 +613,23 @@ reversed — is what a later reader needs.
 | `UX-4` — show `Used by N agents` on the Project Context page | **Accepted (2026-08-20)** | Added `AC-11` and its provenance row |
 | `UX-5` — show a per-document token estimate on each attach row | **Rejected (2026-08-20)** | The design shows only the footer total and the requirement is satisfied by it. Named as a non-goal; `## Inputs and provenance` records it as never rendered |
 | `UX-6` — extend project-context injection to the GitHub/CI runner | **Accepted (2026-08-20)** | Replaced the former "CI injects nothing" criterion with US-7 and `AC-40` – `AC-44`, and added the CI direction analysis to the contract-impact section. Raised `Q-2`, now answered |
+
+**Opened by verification, 2026-08-23 — neither is a defect in the delivered
+code, and each is a question about which side of a disagreement should give.**
+
+- `Q-3` — AC-10 asks for "the time of the last successful refresh"; the shipped
+  `last_synced_at` is the time of the current walk, because discovery is
+  stateless. Should the value be persisted on the repository row so the
+  criterion is met in substance and `neverSynced` becomes reachable, or should
+  the criterion be amended to say what a stateless walk can honestly report?
+  *Default if nobody answers*: the shipped behaviour stands and AC-10's wording
+  is the part that is wrong; a superseding spec amends it when a column is added.
+- `Q-4` — the edge-case table says a run whose every attachment is missing gets a
+  log line that "names each"; the shipped line is budgeted at 2,000 characters
+  with a `+N more` tail. Should the line be unbounded, or does the spec accept
+  the cap? *Default if nobody answers*: the cap stands — the line is persisted
+  inside a jsonb trace document and an unbounded one is an unbounded write — and
+  the edge-case row above is the amended wording.
 
 **One ruling in this spec was reversed.** `UX-1` was accepted on 2026-08-20 and
 rejected by the user on 2026-08-21; the authoring criteria, the overlay

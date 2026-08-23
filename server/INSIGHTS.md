@@ -8,9 +8,106 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Works
 <!-- Approaches, patterns, and solutions that have proven effective here -->
+- 2026-08-23: a byte ceiling on a document read must bound the READ, not reject
+  the file. `FsCloneDocs.read()` answered `{ok:false, reason:'too_large'}` above
+  `MAX_DOC_BYTES` and the service turned that into a `skipped` entry, so the one
+  case AC-33 exists for — a 4 MB markdown — injected nothing at all. Reading
+  `min(size, maxDocBytes)` off the OPEN HANDLE (`handle.stat()`, not the path
+  `stat`, so the size cannot change under you) keeps memory bounded exactly as
+  the rejection did, and the assembler's `MAX_DOC_CHARS` slice then does the
+  truncation it always did. The prefix always has enough to truncate from:
+  262,144 bytes is at least 87,381 UTF-16 units even in the worst 3-byte-per-unit
+  encoding, against a 32,000-character cap (evidence:
+  server/src/adapters/clonedocs/index.ts `readBoundedPrefix`;
+  server/test/context-service.test.ts 'a document above the byte ceiling is
+  listed, attachable and injected truncated (AC-33)')
+- 2026-08-23: cutting a UTF-8 buffer at a byte ceiling splits the last
+  multi-byte character and decodes it as U+FFFD. Walk back at most 4 bytes to the
+  lead byte and drop an incomplete sequence — and do it ONLY when the read was
+  actually truncated, because trimming a complete read would silently alter a
+  file that legitimately ends in invalid UTF-8 (evidence:
+  server/src/adapters/clonedocs/index.ts `withoutPartialUtf8Tail`;
+  server/test/context-discovery.test.ts 'applies the ceiling the policy sets,
+  counting bytes and not characters')
+- 2026-08-23: to make a run produce exactly one `block_budget` skip you need FIVE
+  documents over `MAX_DOC_CHARS`, not four. `fitBody` truncates the document that
+  crosses `MAX_BLOCK_CHARS` and still injects it, so four 32k+ documents fill the
+  budget to exactly 120,000 with zero skips; only the fifth gets
+  `available < 1` and is skipped. Also: assert a run-log line by exact string
+  against `trace.log.map(l => l.msg)` — `toContain` on that array is element
+  equality, so EXTENDING an already-asserted msg (the AC-36 counts line) breaks
+  it. Emit a second, detail event instead and leave the summary line byte-frozen
+  (evidence: server/src/modules/context/assemble.ts `fitBody`;
+  server/test/reviews-context.it.test.ts 'names every document omitted for the
+  block budget')
+- 2026-08-23: build a fixture `run_traces` document by CALLING the real
+  assemblers, never by hand-writing the fenced string. `assembleProjectContext`
+  then `assemblePrompt` (both importable from `src/db/seed.ts` — reviewer-core is
+  ring 0 and no depcruise rule covers `src/db/` → `src/modules/`) return the same
+  `PromptAssembly` the executor persists, so the fixture cannot drift from
+  `wrapUntrusted`'s positional `spec-${i}` labelling or from the assembler's
+  path heading. Hand-writing it encodes today's format into the seed and goes
+  stale silently. Idempotency needs a natural key that `agent_runs` does not
+  have — no unique constraint on it — so pin `ranAt` to a fixed literal and
+  select-then-insert on `(prId, agentId, ranAt)`; the trace itself goes in with
+  `onConflictDoUpdate` so its content converges rather than sticking at whatever
+  the first seed wrote (evidence: server/src/db/seed.ts `demoRunTrace`,
+  `DEMO_RUN_RAN_AT`; verified md5 of `run_traces.trace` identical across two
+  seeds and across two different databases)
+- 2026-08-23: to prove a new prompt slot leaves the message byte-identical when
+  it is empty, you do NOT need a pre-feature baseline string checked into the
+  test. Run the SAME agent three times against the same PR — before anything is
+  attached, with one document attached, then after `PUT .../context` with
+  `{ paths: [] }` — and assert `after.prompt_assembly.user ===
+  before.prompt_assembly.user`. Two agents cannot be compared instead: `task`
+  and the system prompt are agent-scoped, so only a single agent's own
+  before/after pair is a true byte comparison. The middle run is what stops the
+  pair being vacuous — it proves the slot can fire at all (evidence:
+  server/test/reviews-context.it.test.ts "leaves the user message byte-identical
+  when the agent has nothing attached")
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-08-23: adding a field to a response DTO breaks `toEqual` assertions the
+  unit lane cannot see. `truncated` on `ProjectDocBody` turned
+  `context.it.test.ts:208`'s `expect(ok.json()).toEqual({ path, content })` red
+  while `pnpm exec vitest run --exclude '**/*.it.test.ts'` stayed green at 452 —
+  the assertion lives in a Docker-only file. Before widening any DTO, grep the
+  integration lane for whole-body equality on that route
+  (`rg 'toEqual\(\{' server/test/*.it.test.ts`); `toMatchObject` would not have
+  broken (evidence: server/test/context.it.test.ts:208)
+- 2026-08-23: `MockCloneDocs` also ignores its `cloneRoot` argument (`list()` is
+  `Object.keys(this.docs)`, `read()` is `this.docs[path]`), so NO test built on it
+  can tell the stored `repos.clone_path` apart from the root
+  `GitClient.clonePathFor()` derives — such a test passes against both the fixed
+  and the broken code. To prove which root a run actually read, write an inline
+  `CloneDocsSource` keyed BY ROOT (`byRoot[cloneRoot]?.[path]`), serve the same
+  document path different text under the stored and the derived root, and store a
+  `clone_path` the mock git adapter would never produce (evidence:
+  server/src/adapters/mocks.ts MockCloneDocs; server/test/reviews-context.it.test.ts
+  `docsPerCloneRoot` / 'reads the clone root stored on the repo row')
+- 2026-08-23: a green `vendor/shared mirror is byte-identical` lane does NOT
+  mean the two `@devdigest/shared` surfaces agree. The gate is a hardcoded
+  file list, and the one file that covers "everything" — `index.ts` — re-exports
+  with `export *`, so the two barrels can differ arbitrarily behind identical
+  barrel text (the server barrel exports `AgentManifest`/`Provider`/`CiFailOn`
+  and the client's does not, and the lane was green throughout). ALWAYS add a new
+  `contracts/*.ts` to the loop in the same change that creates it; a mirrored
+  file that is not in the loop is *unchecked*, not *checked and passing*
+  (evidence: scripts/verify-l04.sh mirror step; the three known-divergent files
+  are now listed there and printed on every run)
+- 2026-08-23: `MockCloneDocs` CANNOT produce a document that is listed but
+  unreadable, so it cannot exercise AC-9's `document_unreadable` branch. `list()`
+  is `Object.keys(docs)` and `read()` is `this.docs[path] ?? null` — a key mapped
+  to `''` is listed AND reads as `''` (nullish coalescing does not catch the
+  empty string), and a key absent from the map is neither listed nor readable.
+  Write an inline `CloneDocsSource` object literal instead
+  (`{ list: async () => [...], read: async (_r, p) => (p === bad ? null : text) }`)
+  and build a second app with it; the two states then differ by exactly the one
+  variable you are testing (evidence: server/src/adapters/mocks.ts MockCloneDocs;
+  server/test/context.it.test.ts "distinguishes an unreadable document from a
+  missing one")
+- 2026-08-23: do NOT try to exercise the project-context block budget (`MAX_BLOCK_CHARS = 120_000`) with one large document — the per-document cap (`MAX_DOC_CHARS = 32_000`) always binds first, so a single entry can never reach the block cap and the "crossing document is truncated / the rest are omitted" branch stays unexercised while the test still passes on the per-document marker. It takes at least FOUR maximal documents to cross it (`3 × (11 + 32_000) = 96_033` used, the 4th truncated to fill exactly 120_000, the 5th onward skipped with `block_budget`). My first exact-fit test asserted a marker-free 120_000-char single spec and failed for exactly this reason (evidence: server/src/modules/context/assemble.ts `fitBody`; server/test/context-assemble.test.ts "block budget" describe)
 - 2026-08-09: do NOT prove fence-escaping by asserting an absolute count of `</untrusted>` in a rendered prompt — the template's own SECURITY paragraph contains a literal `<untrusted>…</untrusted>` as prose, so the baseline is N+1 fences, not N, and the assertion fails on a perfectly safe render. Compare against a BENIGN render instead (`closers(hostile) === closers(benign)`), which states the property you actually care about: the attacker added no closer. Count opens with `<untrusted source="` to sidestep the prose entirely (evidence: server/test/intent-prompt.test.ts closers() helper; the prose fence at server/src/prompts/intent.classify.md SECURITY block)
 - 2026-08-05: `pnpm db:generate` becomes INTERACTIVE whenever one table both drops and adds columns in the same diff — drizzle-kit asks "Is <col> created or renamed from another column?" per new column and there is no `--yes`/`--force` for it. It cannot be automated: piping newlines does nothing (it reads a raw TTY) and `printf '\n\n' | script -q /dev/null pnpm db:generate` HANGS indefinitely. ALWAYS split such a change into two runs — first edit the schema to only ADD the new columns and generate, then remove the old ones and generate again — which yields two unambiguous migrations and zero prompts (evidence: conventions reshape produced 0013_perpetual_invisible_woman.sql additions + 0014_daily_hitman.sql drops; server/src/db/schema/knowledge.ts conventions)
 - 2026-08-04: in integration tests NEVER read `run_traces` after only `waitForPrRuns` — that returns as soon as `agent_runs.status` is terminal, which `RunExecutor` sets BEFORE it persists the trace, so `GET /runs/:id/trace` intermittently 404s and `prompt_assembly` comes back `undefined`. It is a genuine flake, not a slow machine: reproduced at ~1 in 4 full-suite runs while passing 3/3 in isolation. ALWAYS `await waitForRunTrace(db, runId)` (polls `run_traces`, throws on timeout) before touching the trace (evidence: server/test/helpers/runs.ts waitForRunTrace; server/src/modules/reviews/run-executor.ts status update precedes saveRunTrace; call sites server/test/reviews.it.test.ts:203,269,288)
@@ -18,6 +115,216 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-23: `modules/reviews/run-executor.ts` CANNOT import
+  `sanitizePathLabel` from `modules/context/paths.ts` — depcruise's
+  `no-cross-slice-imports` is severity `error` and run-executor is listed only in
+  `LEGACY.schemaTypes`, not in `LEGACY.crossSlice`, so the import would be a new
+  error against the 7/41 baseline. The label regex is therefore deliberately
+  duplicated as `SKIPPED_DOC_LABEL_DISALLOWED` in run-executor. Anything shared
+  between two slices has to travel through ring 0 (`vendor/shared`), `db/rows.ts`
+  or the container — copying is the cheaper of the two legal options for one
+  regex (evidence:
+  .claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs LEGACY;
+  server/src/modules/reviews/run-executor.ts:37)
+- 2026-08-23: a repo-derived path reaching a run-log `msg` is sanitized to
+  `[A-Za-z0-9._/-]` before interpolation, the same treatment AC-39 gives a prompt
+  label. The reason is not the prompt: an `invalid_path` skip is BY DEFINITION a
+  path `isProjectDocPath` rejected, so it can still carry newlines or control
+  characters, and that msg is written verbatim into `run_traces.trace.log`, into
+  pino's stdout and into the trace drawer — a `\n` in it forges a log line. On
+  every other skip reason the path already passed validation and the sanitizer is
+  the identity function, so it costs nothing (evidence:
+  server/src/modules/reviews/run-executor.ts `skippedProjectDocsLine`;
+  server/src/modules/context/paths.ts `sanitizePathLabel`)
+- 2026-08-23: a port declared NARROWER than its implementation is invisible until a
+  caller tries to use the wider part: `ContextService.resolveForRun` took
+  `RunRepoRef` (= `RepoRef & { clonePath? }`) while the `ProjectContext` port in
+  `modules/context/types.ts` still said `RepoRef`, and every caller goes through the
+  port, so `resolveForRun(id, { owner, name, clonePath })` failed with TS2353
+  'clonePath does not exist in type RepoRef' — method bivariance let the class
+  satisfy the port anyway, so nothing flagged it earlier. `RunRepoRef` now lives in
+  `types.ts` next to the port and `service.ts` imports it; when you widen an
+  implementation's parameter, widen the interface in the SAME change or the
+  capability is unreachable (evidence: server/src/modules/context/types.ts
+  `RunRepoRef`; server/src/modules/reviews/run-executor.ts:206)
+- 2026-08-23: correction to the two entries below about `CloneDocsSource` —
+  `read()` no longer returns `string | null` and the port no longer takes a
+  `RepoRef`. It is now `read(cloneRoot: string, path: string):
+  Promise<CloneDocRead>` where `CloneDocRead` is
+  `{ ok: true; text } | { ok: false; reason }` over
+  `invalid_path | missing | out_of_root | unreadable | too_large`. Two
+  consequences: `document()` no longer re-`list()`s the whole clone to choose
+  between `not_found` and `document_unreadable` — `reason === 'missing'` is the
+  404 code selector, so a typo costs one `realpath` instead of a full walk; and
+  the caller hands the port the clone root it already holds (`repos.clone_path`)
+  instead of the adapter re-deriving `cloneDir/owner/name`, so a `clone_path`
+  pointing elsewhere can no longer list an empty tree with `reason: null`
+  (evidence: server/src/vendor/shared/adapters.ts `CloneDocsSource`;
+  server/src/modules/context/service.ts `document`, `discover`, `gather`;
+  server/test/context-service.test.ts "the 404 the read itself names")
+- 2026-08-23: `FsCloneDocs` bounds its own I/O; the service's caps do not. Reads
+  are ceilinged at `MAX_DOC_BYTES = 262_144` (`stat` first, `too_large` above it,
+  then a bounded `read()` off an open handle sized by `fstat`, which also rejects
+  a non-file so a FIFO cannot block the process). 256 KiB is deliberate: 32,000
+  characters × 4 bytes is the widest UTF-8 encoding a document can have and still
+  fit `MAX_DOC_CHARS` whole, and this is twice that. The walk carries a shared
+  entry budget (`MAX_WALK_ENTRIES = 20_000` dirents) and a depth budget
+  (`MAX_WALK_DEPTH = 10` below a doc root); all three are overridable through
+  `CloneDocsPolicy` so a test can force them small. `MAX_DOC_CHARS` in
+  `assemble.ts` is reached by ONE of the three read callers — `document()` and
+  `estimate()` never touch the assembler — which is why the ceiling has to live
+  at the filesystem boundary and not in the service (evidence:
+  server/src/adapters/clonedocs/index.ts `MAX_DOC_BYTES`, `readBounded`;
+  server/test/context-discovery.test.ts "refuses a document above the byte
+  ceiling")
+- 2026-08-23: a SEMANTIC limit belongs in the service, never in a request-body
+  Zod schema — a schema bound is enforced by `fastify-type-provider-zod` before
+  the handler runs and surfaces as **422**, silently stealing the status code the
+  service was written to return (`DocAttachmentInput.paths` capped at
+  `MAX_ATTACHMENTS` would turn AC-16's 409 into a 422, and a per-element `.max()`
+  would turn AC-15's 400 into one). What a contract schema MAY carry is a DoS
+  ceiling set far above the semantic limit, so the semantically-invalid request
+  still reaches the service and gets its real error. The shared value itself is
+  fine in the contract: `MAX_ATTACHMENTS` now lives in
+  `vendor/shared/contracts/context.ts` and both `modules/context/constants.ts`
+  and `client/src/components/doc-attach/constants.ts` re-export it, which is the
+  only thing that keeps the server's cap and the client's checkbox count in sync
+  across two lockfiles (evidence: server/src/vendor/shared/contracts/context.ts
+  `ATTACHMENT_PATHS_DOS_CEILING`; server/src/modules/context/service.ts:103,231)
+- 2026-08-23: `pnpm typecheck` here does NOT typecheck `test/` — `tsconfig.json`
+  sets `include: ["src/**/*.ts"]`, and `tsc --showConfig` confirms not one
+  `test/**` file is in the program. A type error in a test file is therefore
+  invisible to the module's own quality gate and surfaces (if at all) only as a
+  vitest runtime failure, because vitest transpiles without checking. `client/`
+  is the opposite (`include: ["**/*.ts","**/*.tsx"]`), so the habit does not
+  transfer between the two packages. To check a new server test file, run tsc
+  against a throwaway config that `extends` `server/tsconfig.json` and widens
+  `include` to `test/**/*.ts` (evidence: server/tsconfig.json:28; verified with
+  `npx tsc --showConfig -p tsconfig.json | grep test/` → no matches)
+- 2026-08-23: the persisted run trace DROPS the `data` payload of every run-log
+  event — `RunLogger.logLines()` maps the bus buffer to `{ t, kind, msg }` and
+  nothing else, and `RunLogLine` in the trace contract has exactly those three
+  fields. So `runLog.event('info', msg, { attached, skipped })` puts `skipped`
+  on the SSE stream and in pino, and NOWHERE in `run_traces.trace.log`. Any
+  requirement phrased "record a run-log event naming the path and the reason"
+  can only be met, and can only be tested, if those values are interpolated into
+  the `msg` string itself; asserting on `trace.log[i].data` is asserting on a
+  field that does not exist (evidence: server/src/platform/run-logger.ts:95;
+  server/src/vendor/shared/contracts/trace.ts:13-17; the dropped payload at
+  server/src/modules/reviews/run-executor.ts:213-216)
+- 2026-08-23: seeding a `reviews` row does NOT put anything in the run-trace
+  drawer. The drawer mounts only on `?trace=<runId>`, and both openers that can
+  set it read `agent_runs` — `RunHistory`'s per-row button over `prRuns`
+  (`GET /pulls/:id/runs`) and `FindingsTab`'s `liveRunIds[0]`. `reviews` feeds
+  only the Review Runs accordion. So anything that needs a trace on screen needs
+  an `agent_runs` row plus its `run_traces` row; `reviews.run_id` is the only
+  link between the two halves and it is nullable and unset in the seed. Leaving
+  it null is deliberate — setting it routes the seeded findings into the drawer
+  AND puts the run into `countsByRunId`, pulling the PR-findings e2e flow into
+  the blast radius of any seed change (evidence:
+  client/src/app/repos/[repoId]/pulls/[number]/page.tsx:62,203-209;
+  RunHistory.tsx onOpenTrace; server/src/db/schema/reviews.ts:28 `runId`)
+- 2026-08-23: `repos.clone_path` is NOT the directory project-context discovery
+  reads. `FsCloneDocs` derives its own root as
+  `AppConfig.cloneDir/<owner>/<name>`, and `ContextService` only ever tests
+  `clone_path` for `null`, as an "is this repo cloned" gate. A `clone_path`
+  pointing anywhere else therefore still lists and reads
+  `cloneDir/owner/name` — the two agree only because the clone job stores
+  `git.clonePathFor()`'s result, which uses the same join. Anything that fakes a
+  clone (the seed's fixture tree, a manual fixture) must write the files under
+  `cloneDir/owner/name` AND set the column to that same absolute path; setting
+  only the column produces an empty document list with `reason: null`, which
+  reads like "cloned but no docs" (evidence:
+  server/src/adapters/clonedocs/index.ts:45 `clonePathFor`;
+  server/src/modules/context/service.ts `discover()`;
+  server/src/modules/repos/service.ts:58; server/src/db/seed.ts `writeDemoClone`)
+- 2026-08-23: correction/update to the A6 cruise baseline below — wiring
+  `get projectContext()` into `platform/container.ts` took the tree from
+  **7 errors / 38 warnings to 7 errors / 41 warnings**. The three new warnings
+  are exactly `platform-not-to-modules` edges for `modules/context/`'s
+  `types.ts`, `service.ts` and `repository.ts`, which is the same intended trade
+  the clone-docs policy injection made. `run-executor.ts` deliberately does NOT
+  `import type` from `modules/context/types.ts` — that would be
+  `no-cross-slice-imports`, scored **error** — so it calls
+  `container.projectContext.resolveForRun(...)` and lets inference carry the
+  result type with no import statement at all (evidence:
+  server/src/platform/container.ts `get projectContext()`;
+  server/src/modules/reviews/run-executor.ts project-context block)
+- 2026-08-23: `ProjectDocList.last_synced_at` is NOT persisted anywhere — no
+  column, no cache. Project-context discovery is a live walk of the clone on
+  every request, so `list()` and `resync()` are literally the same read and the
+  field carries the moment THIS walk finished. Anyone adding a "stale for N
+  minutes" badge on top of it is reading a timestamp that is always ~now; a real
+  staleness signal needs a new column, not a reinterpretation of this one
+  (evidence: server/src/modules/context/service.ts `listing`)
+- 2026-08-23: `CloneDocsSource.read()` returns `null` for missing, unreadable,
+  symlinked-out and out-of-root alike — it deliberately never says which. To
+  give the preview a NAMED state (AC-9) the service re-`list()`s only on the
+  failure path and reports `not_found` when the path is absent from the walk vs
+  `document_unreadable` when it was listed but would not read. Both are 404; the
+  distinction is the `error.code`, and it costs a second walk only when a read
+  has already failed (evidence: server/src/modules/context/service.ts `document`;
+  server/src/vendor/shared/adapters.ts CloneDocsSource)
+- 2026-08-23: correction to the `adapters-not-to-modules` entry below — the
+  clone-docs adapter no longer imports `modules/context/`. `FsCloneDocs` takes a
+  `CloneDocsPolicy` (`docRoots`, `docExtensions`, `excludedDirs`, `isDocPath`)
+  declared in its own file, and `platform/container.ts` (ring 4) builds it from
+  `DOC_ROOTS`/`DOC_EXTENSIONS`/`EXCLUDED_DIRS` and `isProjectDocPath`. Net effect
+  on the cruise: 9 errors / 36 warnings → **7 errors / 38 warnings** — the edge
+  did not disappear, it MOVED from `adapters → modules` (`error`) to
+  `platform → modules` (`warn`, MIGRATION §2), so expect the warning count to
+  rise by one per module file the container names. That trade is the intended
+  one; "add no new error" is the bar, not "add no new warning" (evidence:
+  server/src/adapters/clonedocs/index.ts CloneDocsPolicy; server/src/platform/container.ts
+  `get cloneDocs()`)
+- 2026-08-23: correction — `server/package.json` now reads `0.1.0`, so the
+  `SpecFile` marker's `@deprecated since 0.1.0` below names a version that
+  exists; the bump landed with the clone-docs adapter task, not with the marker
+  (evidence: server/package.json:3)
+- 2026-08-23: an adapter under `src/adapters/` that imports a feature slice trips
+  `adapters-not-to-modules`, which the onion ruleset scores as **error**, not
+  `warn` — only `astgrep/` and `depgraph/` are grandfathered by name in
+  `LEGACY.adaptersToModules`. `FsCloneDocs` reads `DOC_ROOTS`/`EXCLUDED_DIRS` and
+  `isProjectDocPath` from `modules/context/`, so a fresh cruise reports two new
+  errors; the alternatives are duplicating the path validation in the adapter
+  (a security-relevant divergence) or injecting the policy from
+  `platform/container.ts`, which is ring 4 and already allowed to name modules.
+  Also: the tree's real baseline is NOT the "0 errors and 35 warnings" the skill
+  advertises — before this task it was **7 errors and 36 warnings**, so "any
+  error is something you just introduced" does not hold here; diff the counts
+  instead (evidence: `cd server && npx depcruise --config
+  ../.claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs src`)
+- 2026-08-23: NOT every adapter port lives in `vendor/shared/adapters.ts` —
+  `Tokenizer` is declared inline in its own implementation file
+  (`src/adapters/tokenizer/index.ts:16`, next to `TiktokenTokenizer`), which
+  inverts the "consumer owns the interface" rule the rest of the adapters follow.
+  ALWAYS `grep -rn "interface <Port>" src/` before assuming a port is in the
+  shared barrel: a plan that says "add a method to `Tokenizer` in `adapters.ts`"
+  is pointing at a file that does not contain it, and declaring a second
+  `Tokenizer` in the barrel would put two same-named interfaces on the
+  `@devdigest/shared` export surface (evidence: server/src/adapters/tokenizer/index.ts:16
+  vs the ports in server/src/vendor/shared/adapters.ts)
+- 2026-08-23: the first `@deprecated` marker in this repo is on `SpecFile`
+  (`vendor/shared/contracts/platform.ts`), and it names `since 0.1.0` while
+  `server/package.json` still reads `0.0.0` — the version bump the
+  `deprecation-policy` skill requires alongside the first marker was out of that
+  task's file scope. `deprecation-audit.sh` does NOT read package.json, so it
+  passes either way; the marker's dates are the only real clock until someone
+  sets the package version. Also note the audit scans `mcp/src` in addition to
+  the three modules named in the root CLAUDE.md table (evidence:
+  server/src/vendor/shared/contracts/platform.ts SpecFile marker;
+  `bash .claude/skills/deprecation-policy/assets/deprecation-audit.sh` output)
+- 2026-08-23: a link table whose composite PK starts with its FK column does
+  NOT need a separate index on that column — Postgres already builds a btree
+  on `(owner_id, path)` for the PK, and any `WHERE owner_id = ?` uses its
+  leftmost prefix. `agent_docs`/`skill_docs` ship one anyway
+  (`agent_docs_agent_idx`, `skill_docs_skill_idx`) because the plan specified
+  it; `agent_skills` (the shape they copy) correctly has the PK and nothing
+  else. Only the `path` index earns its place there — it serves the
+  `used_by_agents` reverse lookup, which the PK cannot answer (evidence:
+  server/src/db/schema/context.ts agentDocs/skillDocs;
+  server/src/db/migrations/0019_unknown_human_torch.sql;
+  server/src/db/schema/agents.ts:51-59)
 - 2026-08-16: adding an extension to `SUPPORTED_EXT` does NOT make every
   parse-gating call site pick it up, even though `SUPPORTED_EXT` is the single
   source of truth for `walkClone`/`parseChangedFiles`/the phantom gate. THREE
@@ -207,6 +514,62 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-23: `scripts/verify-l04.sh` runs the integration lane as
+  `pnpm exec vitest run .it.test` with NO `--no-file-parallelism`, so it inherits
+  the container-contention flake documented below in full — a lane that is
+  130/130 green when you serialize it by hand can still fail inside verify-l04.
+  Worse, the flake MOVES between lanes across runs: run 1 failed only
+  `server integration tests`, run 2 passed that lane 15/15 and failed
+  `client tests` with `[vitest-worker]: Timeout calling "fetch" with
+  "[\"/src/vendor/ui/kit/Drawer.tsx\",\"web\"]"` and a 997s TRANSFORM time
+  (normal is ~1s) — a worker-pool stall, not a test assertion, and it reports as
+  `1 failed | 38 passed` with `308 passed` tests and zero failing test names.
+  Run 3, with nothing else on the machine, was clean end to end and printed
+  `L04 verified.` ALWAYS re-run the whole script once before treating a single
+  red lane there as a code failure, and read the `Duration`/`transform` line: a
+  three-digit transform time means the machine, not the diff (evidence:
+  scripts/verify-l04.sh:56 vs the serialized command in server/CLAUDE.md's
+  testing lanes; three consecutive runs of 2026-08-23)
+- 2026-08-23: addendum to the `--no-file-parallelism` advice below — serializing
+  removes the container-contention timeouts but not every testcontainers
+  failure. A full serialized `pnpm exec vitest run` of the server lane failed
+  exactly one file, `smart-diff.it.test.ts`, with
+  `Error: Expected Reaper to map exposed port 8080`
+  (`node_modules/testcontainers/src/reaper/reaper.ts:63`) while the other 49
+  files passed; re-running that one file alone passed 8/8 in 44s. Ryuk is a
+  file-locked singleton shared by the whole run, so a stale or evicted reaper
+  container fails whichever suite asks for one NEXT, not the suite that broke
+  it — which is why the failure lands on an arbitrary file and moves between
+  runs. Treat a Reaper error as infrastructure and re-run that single file
+  before touching code (evidence: server/test/helpers/pg.ts:36 `startPg`;
+  serialized run of 2026-08-23 — 49 files passed / 1 failed, that file 8/8 alone)
+- 2026-08-23: `pnpm exec vitest run .it.test` can go red for reasons that have
+  nothing to do with the code. `dockerAvailable()` probes with
+  `execSync('docker info', { timeout: 5000 })`, and on a loaded Docker Desktop
+  `docker info` alone takes ~4s — so as the 14 suites boot their own
+  `pgvector/pgvector:pg16` containers concurrently, some files report
+  "Docker not available — skipping" (a false skip) and others die with
+  `Hook timed out in 120000ms` in `beforeAll`/`startPg`. Two consecutive
+  parallel runs failed 3 and then 6 unrelated suites this way. ALWAYS re-run
+  with `--no-file-parallelism` before believing an integration failure: the same
+  lane, serialized, was 13 passed / 2 skipped / 0 failed. A single suite
+  (`vitest run test/<name>.it.test.ts`) is the fastest way to tell a real
+  failure from container contention (evidence: server/test/helpers/pg.ts
+  `dockerAvailable`; `time docker info` → 4.0s idle on this machine)
+- 2026-08-23: to test `TiktokenTokenizer`'s heuristic fallback you must break
+  `getEncoding`, and a plain `vi.mock('js-tiktoken')` factory cannot read a
+  test-file `let` (the factory is hoisted above it) — use
+  `const encoder = vi.hoisted(() => ({ fails: false }))` and flip `encoder.fails`
+  per test. `broken` is sticky by design, so a tokenizer that failed once keeps
+  reporting `estimator() === 'heuristic'` even after the encoder recovers; assert
+  that rather than expecting recovery (evidence: server/test/context-estimate.test.ts;
+  server/src/adapters/tokenizer/index.ts TiktokenTokenizer.broken)
+- 2026-08-23: containment checks against a clone root must `realpath` BOTH sides
+  on macOS — `os.tmpdir()` returns `/var/folders/...` while `realpath` resolves it
+  to `/private/var/folders/...`, so `realpath(file).startsWith(root + sep)` is
+  false for a perfectly legitimate file and every read silently returns `null`
+  (evidence: server/src/adapters/clonedocs/index.ts `read`; the temp-clone fixtures
+  in server/test/context-discovery.test.ts)
 - 2026-08-10: `reviewer-core/src/grounding.ts:16` EXEMPTS `secret_leak |
   lethal_trifecta | phantom | hook` findings from line-intersection grounding —
   they are kept when the *file* is in the diff, so their `start_line` can point
@@ -249,6 +612,79 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-23: restored AC-33 at the byte ceiling — `FsCloneDocs.read()` returns a
+  bounded prefix with `truncated` instead of refusing, `too_large` is gone from
+  `CloneDocReadFailure` (nothing could produce it any more), and `ProjectDocBody`
+  carries an optional `truncated` the preview surfaces. Unit lane 452 passed,
+  integration lane 129 passed / 0 skipped / 1 failed — `context.it.test.ts:208`,
+  a whole-body `toEqual` in a file outside this change's scope; cruise unchanged
+  at 7 errors / 41 warnings.
+- 2026-08-23: closed AC-32 and AC-34 — the skipped project-context paths and
+  their reasons now reach `run_traces.trace.log` as a second
+  `project context skipped: <path> (<reason>)` event, character-budgeted and
+  sanitized, with the AC-36 counts line untouched. Unit lane 449 passed / 2 failed
+  (both in `context-*.test.ts`, from a concurrent agent's `truncated` field, not
+  this change), integration lane 129 passed / 0 skipped / 1 failed (same cause),
+  cruise unchanged at 7 errors / 41 warnings.
+- 2026-08-23: finished review finding #4 — deleted the unreachable `cloneRootFor`
+  fallback from `ContextServiceDeps`/`cloneRootOf` and the one unit case that
+  injected it; unit lane 451 → 450 passed, integration lane 129 passed / 0
+  skipped, cruise unchanged at 7 errors / 41 warnings.
+- 2026-08-23: closed review finding #4's last derivation — the run path now passes
+  the stored `repos.clone_path` into `resolveForRun`, and the `cloneRootFor`
+  fallback wiring (`git.clonePathFor`) is gone from `platform/container.ts`, so
+  production has exactly one source for the clone root. The optional
+  `ContextServiceDeps.cloneRootFor` parameter itself survives only because
+  `test/context-service.test.ts` still injects it.
+- 2026-08-23: L05 Project Context review remediation — widened
+  `CloneDocsSource.read()` to a discriminated result and gave the port the
+  caller's clone root, which removed `document()`'s second full walk, bounded
+  every read at 256 KiB and put an entry and depth budget on the walk. Cruise
+  unchanged at 7 errors / 41 warnings.
+- 2026-08-23: L05 Project Context review remediation — moved `MAX_ATTACHMENTS`
+  into `vendor/shared/contracts/context.ts` (single source across two lockfiles),
+  gave `DocAttachmentInput.paths` a DoS ceiling that leaves AC-15's 400 and
+  AC-16's 409 with the service, and widened `scripts/verify-l04.sh`'s mirror gate
+  to `contracts/context.ts`, `contracts/platform.ts` and `adapters.ts` with the
+  three known-divergent files recorded as an explicit allowlist.
+- 2026-08-23: L05 Project Context coverage close-out — added
+  `test/context-service.test.ts` (AC-4's `MAX_DOCUMENTS` cap and `omitted`
+  arithmetic, which moved from the adapter to the service in amendment A1 and
+  was proven nowhere; plus AC-12's attachment-table column set) and
+  `test/context-prompt-section.test.ts` (AC-21 in the unit lane, composing the
+  server assembler with reviewer-core's renderer); found that AC-32's "naming
+  the path and the reason" is unobservable in the persisted trace.
+- 2026-08-23: T12 — seeded a four-document fixture clone for `acme/payments-api`
+  under `AppConfig.cloneDir` and pointed `repos.clone_path` at it, so
+  `GET /repos/:id/context` returns real documents for the demo repo; then added
+  one completed `agent_runs` row for PR #482 with a `run_traces` document whose
+  `prompt_assembly.specs` and `specs_read` carry `specs/idempotency-keys.md`, so
+  the run-trace drawer has a run to open. Verified with the hermetic e2e stack —
+  9/9 flows pass, flow 04 included.
+- 2026-08-23: T9 — wired `resolveForRun` into `ReviewRunExecutor` through a new
+  `container.projectContext` facade, set `specs_read`, and added
+  `test/reviews-context.it.test.ts` (merge order, default-branch source, skip
+  logging, byte-identity when nothing is attached).
+- 2026-08-23: project-context T7 — `modules/context/{ports,types,repository,service,routes}.ts`
+  (six route groups, ports-not-Container, `MAX_DOCUMENTS` cap + `omitted` and
+  `reason: 'not_cloned'` derived in the service, 400 on a bad path, `ConflictError`
+  → 409 at 21 attachments, `resolveForRun` for T9), `ConflictError` in
+  `platform/errors.ts`, module registered in `modules/index.ts`, and
+  `test/context.it.test.ts`, 14 integration cases.
+- 2026-08-23: project-context T5 — `adapters/clonedocs` (uncapped four-root walk,
+  symlinks never followed, realpath-guarded `read`), `Tokenizer.estimator?()` +
+  `TiktokenTokenizer.estimator()`, `MockCloneDocs`, `Container.cloneDocs`,
+  `server/package.json` 0.0.0 → 0.1.0, and `test/context-{discovery,estimate}.test.ts`,
+  13 unit cases.
+- 2026-08-23: project-context T3 — pure `modules/context/{constants,paths,assemble}.ts`
+  (path guard, category, label sanitiser, first-wins merge, block assembly) plus
+  `test/context-{paths,assemble}.test.ts`, 52 unit cases.
+- 2026-08-23: project-context T1 — `vendor/shared/contracts/context.ts` (seven
+  schemas), barrel re-export, `AgentManifest.project_context` nullish,
+  `SpecFile` deprecation marker, `CloneDocsSource` port in `adapters.ts`.
+- 2026-08-23: project-context T2 — `agent_docs`/`skill_docs` link tables
+  (path only, never a body) added to `db/schema/context.ts`, migration
+  `0019_unknown_human_torch.sql` generated and applied.
 - 2026-08-16: repo-intel Phase 2 (Vue SFC support) — `@vue/compiler-sfc@^3`
   added (also switches on dependency-cruiser's built-in `.vue` handling);
   `.vue` joined `SUPPORTED_EXT` + ripgrep's separately-hardcoded `CODE_EXT`;
@@ -289,3 +725,28 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Open Questions
 <!-- Unresolved things that need more investigation -->
+- 2026-08-23: correction — the `resolveForRun` question below is CLOSED, and its
+  fallback is gone. `run-executor.ts` passes `clonePath: repo.clonePath`, the
+  `cloneRootFor` wiring left `platform/container.ts`, and
+  `ContextServiceDeps.cloneRootFor` plus the `?? this.deps.cloneRootFor?.(repo)`
+  branch in `cloneRootOf` are now deleted — `cloneRootOf` is `repo.clonePath ??
+  null` and `repos.clone_path` is the ONLY source for the clone root on all four
+  paths (`list`/`resync`, `document`, `estimate`, `resolveForRun`). Removing the
+  dep also removed the last consumer of the `RepoRef` import in `service.ts`. The
+  unit case that injected it (`prefers the clone path the run caller holds over
+  the container fallback`) was deleted with it: it constructed a dependency
+  production never supplied, so it read as coverage of a branch that could not
+  fire (evidence: server/src/modules/context/service.ts:239-241
+  `cloneRootOf`; grep `cloneRootFor` across server/src + server/test → no matches)
+- 2026-08-23: `resolveForRun` is the one project-context path that still does
+  NOT use the stored clone root. `run-executor.ts` calls it with
+  `{ owner, name }` built from the repo row while holding `repo.clonePath` on
+  that same row, so `ContextService` falls back to an injected
+  `cloneRootFor` — wired in `platform/container.ts` to `git.clonePathFor()`,
+  the same join that wrote the clone. Passing `clonePath: repo.clonePath` in
+  that object literal is a one-line change that retires the fallback entirely;
+  it was left alone only because `run-executor.ts` was outside the file set of
+  the task that widened the port (evidence:
+  server/src/modules/reviews/run-executor.ts `resolveForRun` call;
+  server/src/modules/context/service.ts `cloneRootOf`;
+  server/src/platform/container.ts `get projectContext()`)

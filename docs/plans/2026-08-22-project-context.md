@@ -40,7 +40,7 @@ repeated verbatim under `## Out of scope`.
 | AC-1 | Discovery: 4 roots, `.md`/`.mdx`, exclusion list | T5, T7 | `server/test/context-discovery.test.ts` |
 | AC-2 | Never follow a symlink | T5 | `server/test/context-discovery.test.ts` |
 | AC-3 | path, name, folder, category per document | T3, T7 | `server/test/context-paths.test.ts` |
-| AC-4 | >500 docs → first 500 by path + `omitted` | T5, T7 | `server/test/context-discovery.test.ts` |
+| AC-4 | >500 docs → first 500 by path + `omitted` | T7 | `server/test/context-service.test.ts` — **corrected**: per A1 the cap and the `omitted` count live in the service, and `context-discovery.test.ts` asserts the walk is deliberately *uncapped*, i.e. the opposite |
 | AC-5 | Preview renders; selection reflected in the URL | T8 | `ProjectContextView.test.tsx` |
 | AC-6 | Raw HTML disabled; non-`http(s)` URLs dropped | T8 | `DocumentPreview.test.tsx` |
 | AC-7 | No clone → empty list, `reason: not_cloned`, client state | T7, T8 | `context.it.test.ts`, `ProjectContextView.test.tsx` |
@@ -334,13 +334,19 @@ and tested before any of it.
   `repo-intel/pipeline/walk.ts:73-121` — recursive `readdir` with
   `withFileTypes`, **`dirent.isSymbolicLink()` skipped outright** (AC-2),
   `EXCLUDED_DIRS` pruned, extension gate, POSIX-normalised relative paths,
-  stable ascending path sort, and a hard stop that returns the first
-  `MAX_DOCUMENTS` with the count omitted (AC-4). Unreadable directories are
+  stable ascending path sort, and **[AMENDED 2026-08-23 — see `## Amendments`]**
+  *no* cap: `list()` returns every discovered entry. `MAX_DOCUMENTS` capping and
+  the `omitted` count are T7's, in the service, because `Promise<CloneDocEntry[]>`
+  cannot carry a count of what it dropped (AC-4). Unreadable directories are
   swallowed, not thrown. `read()` resolves through `isProjectDocPath` **again**
   before joining (`readClone` at `repo-intel/service.ts:876-878` does
   `join(clonePath, file)` with no guard — do not repeat that), returns `null` on
-  any error. Return `{ reason: 'not_cloned' }` when `repos.clone_path` is null
-  (AC-7). In the tokenizer, implement the new optional `estimator()` returning
+  any error. **[AMENDED]** `reason: 'not_cloned'` is derived in T7's service from
+  `repos.clone_path` being null; it is not returned from this port, whose `read()`
+  is typed `Promise<string | null>` (AC-7). In the tokenizer, implement the new
+  optional `estimator()` — **[AMENDED]** declared on the `Tokenizer` interface at
+  `server/src/adapters/tokenizer/index.ts:16`, which is where it lives, not in
+  `vendor/shared/adapters.ts` as this plan originally said — returning
   `'heuristic'` once the sticky `broken` flag is set and `'cl100k_base'`
   otherwise, and update the "ONLY under modules/repo-intel" scope note in the
   file header — this feature widens it. Add `MockCloneDocs` to `mocks.ts` taking
@@ -681,3 +687,447 @@ Deliberately excluded by this plan rather than by the spec:
 None outstanding. The four that shaped this plan — CI scope, payload shape, e2e
 scope and execution mode — were answered before it was written and are recorded
 under `## Requirements review`.
+
+## Amendments
+
+Recorded during `/sdd-build`, after the wave-1 gate proved three items of the
+plan text unsatisfiable as written. Code delivered in wave 1 is unaffected; only
+later tasks change.
+
+### A1 — the `omitted` count moves from the port to the service (T5, T7)
+
+T5 asked `CloneDocsSource.list()` for "a hard stop that returns the first
+`MAX_DOCUMENTS` with the count omitted", but T1 declared the signature this plan
+specified, `list(repo): Promise<CloneDocEntry[]>`. An array truncated at 500
+cannot report how many entries it dropped, so the instruction was unsatisfiable.
+
+**Resolved:** `list()` returns the full discovered set, uncapped. T7's service
+applies `MAX_DOCUMENTS` and computes `omitted = entries.length - MAX_DOCUMENTS`
+when building `ProjectDocList`. AC-4 is met end to end; no contract changes, so
+T6's mirror is unaffected.
+
+### A2 — `reason: 'not_cloned'` is derived in the service, not returned by `read()` (T5, T7)
+
+T5 asked `read()`, typed `Promise<string | null>`, to "return
+`{ reason: 'not_cloned' }`". **Resolved:** the service derives it from
+`repos.clone_path` being null and never calls the port in that case (AC-7).
+
+### A3 — `Tokenizer.estimator?()` is declared where `Tokenizer` actually lives (T1, T5)
+
+T1 was told to add the optional `estimator?()` to `vendor/shared/adapters.ts`,
+but `Tokenizer` is declared at `server/src/adapters/tokenizer/index.ts:16` — a
+file in T5's `Files:` list. T1 correctly declined rather than create a second
+same-named interface on the `@devdigest/shared` export surface.
+
+**Resolved:** T5 adds `estimator?(): 'cl100k_base' | 'heuristic'` to the
+interface in its own file, which it edits anyway. T1's `Done when:` never
+mentioned `estimator()`, so no wave-1 completion clause failed.
+
+### A4 — `server/package.json` version bump (T5)
+
+`deprecation-policy` requires that the first deprecation marker in a package is
+also the commit that gives that package a real version. T1's marker on
+`SpecFile` reads `@deprecated since 0.1.0` while `server/package.json:3` still
+reads `0.0.0`, so it names a version that does not exist. `package.json` was in
+no wave-1 task's `Files:` list.
+
+**Resolved:** T5 adds `server/package.json` to its `Files:` list and bumps
+`version` to `0.1.0`. Nothing else in that file changes.
+
+### A5 — `AgentManifest` is server-only; the client mirror omits it (T6)
+
+T6 was asked to carry T1's `AgentManifest.project_context` addition into
+`client/src/vendor/shared/contracts/eval-ci.ts`. It could not: **the client copy
+declares no `AgentManifest` at all.** The pre-existing drift this plan's
+`## Recommendations` flagged in `eval-ci.ts` is a missing ~30-line block (server
+`eval-ci.ts:145-176`), not a field-level divergence, and the client's import line
+lacks `Provider` and `CiFailOn` besides. Verified: `grep -rn AgentManifest
+client/src` returns nothing, vendored copy included.
+
+Carrying the field would mean back-porting the whole missing block plus two more
+symbols — exactly the drift repair this plan puts under `## Out of scope`.
+
+**Resolved: accept, and record it here.** `AgentManifest` is server-side only.
+Its consumer is the out-of-tree CI runner, which reads the server's copy; no
+client code imports it (AC-40/AC-44 are already marked *partial* for the same
+reason — no dispatch exists). The client mirror deliberately omits it.
+
+This is a knowing omission, not an oversight, and it is the one place where the
+two vendored halves disagree about what a contract says. Repairing it belongs to
+the deferred "widen `scripts/verify-l04.sh` beyond its three hardcoded files"
+change, together with `productionize.ts` and `trace.ts`.
+
+`contracts/context.ts`, `adapters.ts` and `contracts/platform.ts` are all
+byte-identical across the two copies as of T6 — including the `@deprecated`
+marker, which `deprecation-policy` requires in both.
+
+### A6 — the clone-docs adapter takes its path policy by injection (T5)
+
+The wave-2 gate found `server/src/adapters/clonedocs/index.ts` importing
+`isProjectDocPath` and the constants from `server/src/modules/context/`, which
+the `onion-architecture` ruleset scores as **`error`** (`adapters-not-to-modules`,
+`from: ^src/adapters/`, `to: ^src/modules/`; the `LEGACY.adaptersToModules`
+exemption names only `astgrep/` and `depgraph/`). Two new errors: the tree was
+7 errors / 36 warnings before this build and 9 / 36 after T5.
+
+T5 wrote the import because this plan's own T5 text instructs `read()` to
+re-validate through `isProjectDocPath`, and forking security-relevant path
+validation into the adapter would be worse than the lint error.
+
+**Resolved: inject, do not duplicate and do not exempt.** Moving the path core
+to ring 0 is wrong here — ring 0 is `vendor/shared/`, the client-mirrored
+contract surface, and these are server-only filesystem-walk constants that would
+then have to be mirrored into the client bundle and the `diff -q` gate.
+`platform/container.ts` is ring 4 and is already permitted to name modules, so
+it constructs the policy and hands it to `FsCloneDocs`.
+
+`isProjectDocPath` stays the single definition in `modules/context/paths.ts`;
+the adapter receives it rather than importing it. AC-2's symlink rule and T5's
+`realpath` containment guard are unaffected.
+
+**Baseline note for later waves:** the pre-existing 7 errors / 36 warnings are
+**not** this feature's to fix. The `onion-architecture` SKILL.md claims a clean
+tree of "0 errors and 35 warnings", which has not been true for this repository
+since at least 2026-08-10 — `server/INSIGHTS.md` records the real figure. The
+bar for this feature is: **add no new error.**
+
+### A7 — `client/src/vendor/ui/nav.ts` belongs to T8's `Files:` list
+
+T8's `Do:` names `client/src/vendor/ui/nav.ts` verbatim and requires the page be
+registered there with a `NavItemDef` and a `ShortcutDef`, "which is where sidebar
+entries live, not the app router". Its `Files:` list omits the path.
+
+T8 made the edit, correctly and minimally. The wave-3 gate flagged it as a
+`Files:`-list miss rather than unplanned work.
+
+**Resolved: the plan was wrong; `client/src/vendor/ui/nav.ts` is in T8's scope.**
+Recorded so the final verifier does not read it as drift. The same applies to
+`client/src/vendor/ui/primitives/Markdown.tsx`, which *is* in T8's `Files:` — both
+are `src/vendor/ui/` paths that `frontend-ui-architecture` calls read-only, and
+the plan overrides that skill deliberately in both cases.
+
+### A8 — `POST /repos/:id/context/resync` returns a full `ProjectDocList`
+
+T7's `Do:` says `resync(...)` returns "the refresh time". The implementation
+returns a complete, contract-checked `ProjectDocList` — `resync()` is `listing()`
+verbatim (`service.ts:63-65`), because discovery is a stateless live walk.
+
+This is the shape T8's client requires: `useResyncProjectContext` writes the
+response straight into the docs cache with `setQueryData`
+(`client/src/lib/hooks/context.ts:53-56`). Had the route returned a bare
+timestamp, resync would have corrupted the page's cache and broken AC-10.
+
+**Resolved: the code is right and the plan text was wrong.** The wave-3 gate
+verified both halves agree. `last_synced_at` travels as a field *inside* that
+list, which is how the refresh time still reaches the UI.
+
+**Known limitation, pre-flagged for the final AC trace:** because `resync()` and
+`list()` are the same stateless walk, `last_synced_at` is generated at
+`service.ts:195` on every read and is therefore always "0 seconds ago". AC-10 is
+met literally — a refresh time is shown — but the value can never distinguish
+*last successful refresh* from *now*, and the client's `neverSynced` string is
+unreachable for any cloned repository. Persisting it needs a column T2 did not
+add; that is a follow-up change, not this feature.
+
+### A9 — `client/src/components/doc-attach/constants.ts` belongs to T10's `Files:` list
+
+T10's `Files:` enumerates five files for `client/src/components/doc-attach/`
+(`DocAttachPanel.tsx`, `helpers.ts`, `styles.ts`, `index.ts`,
+`DocAttachPanel.test.tsx`). T10 added a sixth, `constants.ts`, holding the icon
+names, `MAX_ATTACHMENTS` and the 250 ms debounce interval.
+
+`frontend-ui-architecture` — which T10's own `Skills:` line mandates — is the
+skill that *requires* constants live in a `constants.ts` rather than inline. The
+plan told T10 to apply a skill whose rule its `Files:` list did not budget for.
+
+**Resolved: the plan was wrong; the file is in T10's scope.** Same class as A7.
+The edit is 14 lines and adds no surface beyond the folder.
+
+## Findings for `/sdd-review` — recorded during the build
+
+Not defects in the delivered work, and not this feature's to fix. Recorded so
+they are not rediscovered from scratch.
+
+### F1 — the integration lane can report green while skipping 35% of itself
+
+`server/test/helpers/pg.ts:23-33` probes with
+`execSync('docker info', { stdio: 'ignore', timeout: 5000 })`. Measured on this
+machine at **5.09s / 4.91s / 2.50s** — the probe races a command whose idle
+latency straddles its own budget. On a loss it caches `false` and
+`const d = hasDocker ? describe : describe.skip` skips the entire file, **and
+the lane still exits 0**.
+
+The wave-4 gate measured the consequence: a parallel run reported
+`82 passed | 44 skipped` and exit 0, while a serialized run of the identical
+tree reported **`126 passed, 0 skipped`**. All 44 skips were the false-probe
+kind; **zero** were a legitimate guard — the docker probe is the only skip
+mechanism across all 15 integration files (`rg 'skipIf|\.skip\b|todo\('` finds
+nothing else). The 44 reconcile exactly to `skills.it.test.ts` (25) +
+`conventions.it.test.ts` (19).
+
+This matters to this feature specifically: AC-27, AC-28, AC-31, AC-32, AC-35 and
+AC-36 are proven **only** in the integration lane. A green run is evidence only
+when read together with its skip count. Pre-existing; owner is `test-writer`.
+
+### F2 — `MAX_ATTACHMENTS = 20` is duplicated across the package boundary
+
+`server/src/modules/context/constants.ts` and
+`client/src/components/doc-attach/constants.ts` both declare it, in packages with
+separate lockfiles, and neither `vendor/shared` copy carries it. The client uses
+it for three user-visible behaviours — the estimate slice, the at-limit block and
+the "Limit reached" string — so changing the server's value silently
+desynchronises the UI. Whether it belongs in `vendor/shared` is an architecture
+call.
+
+### F3 — repo scoping of a workspace-scoped owner is undefined
+
+Both `ContextTab.tsx` files take the repository from `useActiveRepo()`
+(URL > localStorage > first repo). Agents and skills are **workspace**-scoped;
+documents are **repo**-scoped. Which repository's documents an agent attaches,
+and what becomes of those attachments when the active repo changes, is a product
+question this plan never answered. The null case is handled (`noRepo` empty
+state); the *wrong-repo* case is not defined.
+
+### F4 — `buildRunTrace` is dead code
+
+T9's `Do:` said to thread `specsRead` through `trace-builder.ts:33,52`. Both
+lines already carried it, and `rg 'buildRunTrace|trace-builder'` across
+`server/src`, `server/test`, `client/src`, `reviewer-core/src` and `e2e` finds
+**one hit — the definition itself**. The instruction pointed at dead code;
+`emptyPromptAssembly` is the file's only live export. The real wiring is the
+direct `specs_read` assignment in `run-executor.ts`.
+
+### F5 — AC-10's `last_synced_at` is met literally, not in substance
+
+See A8. Always "0 seconds ago"; `neverSynced` unreachable for a cloned repo.
+
+### F6 — the two AC-17 cases exercise one code path
+
+The "omitted from a capped list" case sets `omitted: 12`, but `DocAttachPanel`
+never reads `omitted` — both cases reach the same path-not-in-`documents` branch.
+Two scenarios over one code path, not two paths.
+
+### A10 — flow 09 uses two step verbs beyond T13's enumerated set
+
+T13's `Do:` says to copy `08-conventions.flow.json`'s shape "exactly — `open`,
+`wait --url`, `wait --load networkidle`, `wait --text`,
+`find role button click --name`, and nothing else". Flow 09 additionally uses
+**`find text … click`** (4 steps) and **`find role checkbox click --name`** (1).
+
+Both are necessary and both have precedent:
+- `find text … click` is what `08-conventions.flow.json` itself uses
+  (`find text Conventions click`), and it is the only way to click a
+  `div`-with-`onClick` — which is what `TraceSection` headers and `PromptBlock`
+  segment headers are. The plan's own required assertions cannot be reached
+  without it.
+- `find role checkbox click --name` was forced by a `--name` substring collision
+  recorded in `e2e/INSIGHTS.md` (2026-08-23).
+
+**Resolved: the vocabulary list in T13's `Do:` was under-specified, not violated
+in spirit.** The prohibition it was carrying — no `chat`, no LLM, no separate
+assert step, `wait --text` *is* the assertion — is fully honoured: the verb
+histogram across all 46 steps is `open` ×3, `wait` ×32, `find` ×11 and nothing
+else.
+
+### F7 — `server/src/db/seed.ts` carries ~45 lines of new comments
+
+The final gate found roughly 45 lines of new block and inline comments added to
+`seed.ts` across T12's two rounds (the `DEMO_REPO_DOCS` header, `demoRunTrace`'s
+"REAL assembler" note, `writeDemoClone`'s idempotency note, the
+`reviews.run_id stays null` rationale). Root `CLAUDE.md` forbids comments in new
+code.
+
+Mitigating, and the reason this is recorded rather than fixed: two of them carry
+genuinely load-bearing facts that cost this build real time to establish — that
+the trace is generated by the *real* assemblers rather than hand-written, and
+that re-seeding must not duplicate the fixture tree. The right resolution is
+probably to move them into `server/specs/` at `/sdd-close` rather than to delete
+them outright. `pr-self-review` owns the call.
+
+### F8 — a second Testcontainers flake, distinct from F1
+
+The final gate's first serialized integration run failed with
+`No host port found for host IP` (`testcontainers/src/utils/bound-ports.ts:74`
+via `test/helpers/pg.ts:36`) — `Tests 122 passed | 4 skipped (126)`. The
+identical command re-run gave `126 passed`, 0 skipped. An isolated run of the
+failing file gave `7 passed`.
+
+This is **not** F1's `docker info` probe race: the file failed its container
+start rather than being probe-skipped, and the lane **exited non-zero**, so it
+did not report green while skipping. It is an adjacent flake in the same helper.
+T12's earlier round also hit a third variant, `Expected Reaper to map exposed
+port 8080`. Three distinct Testcontainers failure modes in one build is a
+harness-reliability finding in its own right; owner is `test-writer`.
+
+### A11 — `scripts/verify-l04.sh` was widened, contradicting `## Out of scope`
+
+`## Out of scope` says: *"Widening `scripts/verify-l04.sh`'s mirror gate beyond its
+three hardcoded files."* During `/sdd-review` the architecture reviewer found that
+this feature adds a **fourth** mirrored contract file, edits `adapters.ts`, and
+puts a `@deprecated` marker in `contracts/platform.ts` that `deprecation-policy`
+requires in *both* copies — and **none of the three was gated**. Worse, the one
+gated file that passes, `index.ts`, re-exports with `export *`, so the two
+`@devdigest/shared` surfaces can differ arbitrarily behind an identical barrel.
+That is not hypothetical: it is A5's live state.
+
+**Resolved: the exclusion was deliberately overridden, narrowly.** The gate now
+covers `contracts/context.ts`, `contracts/platform.ts` and `adapters.ts` — all
+byte-identical, so it went green immediately — and prints the three known-divergent
+files as `known-divergent, deliberately not gated` rather than leaving them
+silently absent. The distinction that matters is *mirrored* versus *not checked*.
+
+**The other half of the bullet stands:** the `eval-ci.ts` / `productionize.ts` /
+`trace.ts` drift itself was **not** repaired and remains out of scope.
+
+`scripts/verify-l04.sh` is in no task's `Files:` list; it is a `/sdd-review` fix
+path. Recorded so the excluded-scope statement and the shipped script stop
+disagreeing.
+
+### A12 — T9's `trace-builder.ts` edit was never possible
+
+T9's `Files:` list promises `server/src/platform/trace-builder.ts` and its `Do:`
+says to "thread `specsRead` through `trace-builder.ts:33,52`". The final verifier
+marks that item **NOT MET**: the file is untouched.
+
+It could not have been otherwise. Both cited lines **already carried** `specsRead`
+before this feature began, and `rg 'buildRunTrace|trace-builder'` across
+`server/src`, `server/test`, `client/src`, `reviewer-core/src` and `e2e` returns
+**one hit — the definition itself**. The function has no callers;
+`emptyPromptAssembly` is the file's only live export. Threading a field through it
+could not have affected any trace this feature produces.
+
+**Resolved: the plan pointed at dead code.** The real wiring is the direct
+`specs_read: projectContext.specsRead` assignment in `run-executor.ts`, which is
+delivered and proven by `reviews-context.it.test.ts`. This is recorded as F4 and
+the `Files:` promise is withdrawn rather than met.
+
+### A13 — the contract verdict is now MAJOR, on one element only
+
+`## Contract & version impact` states **"MINOR — additive on every surface,
+breaking on none."** That was true of everything the plan delivered, and remains
+true of every row in its table. The AC-33 restoration changed it.
+
+Restoring AC-33 replaced the byte-ceiling *rejection* with a bounded prefix read,
+which made `'too_large'` unreachable. It was **removed** from
+`CloneDocReadFailure` in both vendored copies rather than left as a dead variant.
+By `semver-discipline`, removing a member from a union export is **MAJOR** — so
+the feature's verdict is MAJOR, and pre-1.0 that lands `server/package.json` at
+`0.2.0` rather than `0.1.0`.
+
+**Nothing observable breaks, and it is worth being precise about why rather than
+waving it away.** The entire `CloneDoc*` surface was introduced by this same
+unreleased feature; `too_large` existed only between the review fix and the
+AC-33 restoration, never in a released build. `grep` finds no consumer outside
+the three files changed alongside it, and the one reader (`gather()` in
+`service.ts`) matches non-exhaustively, so it compiles either way. The rule is
+applied because it is the rule, not because a consumer was found.
+
+Two additive changes rode along and are genuinely MINOR: `CloneDocRead.truncated?`
+on the success arm, and `ProjectDocBody.truncated` — both **optional**,
+deliberately, so `MockCloneDocs` and the existing client test fixtures compile
+untouched.
+
+**A runtime lesson worth keeping** (recorded in `server/INSIGHTS.md`): no route in
+this codebase declares a `response:` schema, so a new DTO field reaches the wire
+straight from the hand-written object in the service. `pnpm typecheck` stayed
+clean while a whole-body `toEqual` in `context.it.test.ts` went red — the type
+system cannot see the response shape, so an exhaustive assertion in the
+integration lane is the only thing that can.
+
+**Not done here:** `server/package.json` still reads `0.1.0` (set by A4). The bump
+to `0.2.0` belongs with whoever cuts the version, and `@deprecated since 0.1.0` on
+`SpecFile` stays correct either way.
+
+### F9 — the L04 gate runs the integration lane in the mode F1 warns about
+
+`scripts/verify-l04.sh:56` invokes `pnpm exec vitest run .it.test` **without**
+`--no-file-parallelism`, so the repository's own merge gate inherits exactly the
+contention F1 describes: `dockerAvailable()` races a ~5s `docker info` against a
+5000 ms timeout, and a lost race skips a whole file while the lane still exits 0.
+
+Observed during close-out: three consecutive `verify-l04.sh` runs on an unchanged
+tree gave *integration red*, then *client red*, then *all green*. The same
+integration lane run serialized returned `130 passed / 0 skipped` immediately
+before and after. The client failure was a different flake again — a vitest
+worker stalling in module transform (`997s` of transform, 308 tests passed, no
+test body reached).
+
+Two consequences worth acting on:
+- The gate can go **red** on a clean tree, which trains people to re-run it until
+  it is green — the same habit that would hide a real failure.
+- Per F1, the gate could also go **green** while silently skipping a suite.
+
+Adding `--no-file-parallelism` to that line costs wall-clock and removes both.
+Owner is `test-writer`, together with F1 and F8.
+
+**A rule of thumb this build earned:** a three-digit `transform` time in a vitest
+summary means the machine, not the diff.
+
+### A13a — correction to A13: the verdict stays MINOR
+
+A13 classified this feature **MAJOR** on the removal of `'too_large'` from
+`CloneDocReadFailure`, citing `semver-discipline`'s general rule that removing a
+member from a union export is breaking. The final verifier checked the skill and
+found a **more specific clause that governs**, in
+`references/edge-cases.md` → *Pre-releases and unreleased work*:
+
+> while a version is unreleased, edits to it do not each get their own bump.
+> Amend the pending entry. Once released — tagged, deployed, **or consumed by
+> another module in the repo** — it is frozen.
+
+`'too_large'` was never tagged, never deployed, and had no consumer outside the
+three files changed alongside it. It existed only between the review fix and the
+AC-33 restoration, both inside this unreleased feature. It never froze, so the
+correct action was to amend the pending entry — which is what happened.
+
+**Resolved: the feature is MINOR, as `## Contract & version impact` originally
+stated.** A13 over-classified. That is the safe direction and it cost nothing —
+it is also why `server/package.json` reading `0.1.0` produces no inconsistency,
+and why no `0.2.0` bump is owed.
+
+A13's substance stands and is worth keeping: the two additive rows
+(`CloneDocRead.truncated?`, `ProjectDocBody.truncated?`) are correctly MINOR and
+deliberately optional, and the runtime lesson it records — a new DTO field reaches
+the wire from the hand-written service object because no route declares a
+`response:` schema, so typecheck cannot see it and only an exhaustive integration
+assertion can — is the reason `context.it.test.ts:208` caught it.
+
+### A14 — two e2e flows and one test file landed outside every `Files:` list
+
+The final verifier flagged three paths as scope drift with no amendment behind
+them. All three are legitimate; recording them so the ledger closes clean.
+
+- **`e2e/specs/04-pr-findings.flow.json`** and **`e2e/specs/05-pr-diff.flow.json`**
+  — one `wait --load networkidle` line each. Flows 04, 05 and 09 share an opening
+  that clicks a PR row after `wait --url` but before `GET /repos/:id/pulls`
+  settles; the suite flapped 7/9 → 8/9 → 9/9 on an unchanged tree. Fixing 09
+  alone would have left the other two flapping, and T13's own `Done when:`
+  requires "without disturbing flows 01–08" — a suite that fails at random
+  disturbs them. Four consecutive 9/9 runs followed. Flow 02 carried the same
+  opening but was accidentally guarded by a `wait --text` on the row.
+
+- **`server/test/context-prompt-section.test.ts`** — 4 cases proving AC-21 and
+  AC-27 in the **unit** lane. `test-writer` added it during `/sdd-review` after
+  finding AC-21's only proof was in the Docker-gated integration lane and checked
+  the skill-contributed document by heading prefix rather than at full text. The
+  plan's named file (`context-assemble.test.ts`) also exists and passes; this is
+  additional, not a replacement. The coverage table's AC-21 row still cites only
+  the original — a stale citation of the same kind as AC-4's, not a gap.
+
+`PR_DESCRIPTION.md` remains untracked and predates this work; it is not this
+feature's.
+
+### F2 — CLOSED (superseded by the review fix)
+
+F2 recorded `MAX_ATTACHMENTS = 20` as duplicated across the package boundary with
+nothing keeping the two in sync. That was true when written and is no longer.
+
+The `/sdd-review` fix moved it to a **single definition** in
+`server/src/vendor/shared/contracts/context.ts`, re-exported by
+`server/src/modules/context/constants.ts` and
+`client/src/components/doc-attach/constants.ts`. That contract file is
+byte-identical across both vendored copies and — per A11 — is now covered by
+`scripts/verify-l04.sh`, so a one-sided edit fails the gate.
+
+Verified by `doc-writer` against the tree. **No action; F2 should not be carried
+forward as open work.**
