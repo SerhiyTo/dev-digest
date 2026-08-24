@@ -10,6 +10,7 @@ import type { ConventionEvidenceRow } from '../../db/schema/knowledge.js';
  * rather than leaking across tenants.
  */
 
+export type { ConventionEvidenceRow };
 export type ConventionRow = typeof t.conventions.$inferSelect;
 export type ConventionScanRow = typeof t.conventionScans.$inferSelect;
 

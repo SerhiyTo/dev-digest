@@ -7,12 +7,15 @@ import type {
   Skill,
 } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
-import type { ConventionEvidenceRow } from '../../db/schema/knowledge.js';
 import { renderPrompt } from '../../platform/prompts.js';
-import { resolveFeatureModel } from '../settings/feature-models.js';
-import { SkillsService } from '../skills/service.js';
-import { skillBodyPatch } from '../skills/diff.js';
-import { ConventionsRepository, type ConventionRow, type InsertConvention } from './repository.js';
+import { SettingsFeatureModelResolver } from '../../adapters/settings/feature-models.js';
+import { skillBodyPatch } from '../_shared/diff.js';
+import {
+  ConventionsRepository,
+  type ConventionEvidenceRow,
+  type ConventionRow,
+  type InsertConvention,
+} from './repository.js';
 import { countDropReasons, sumNullable, toConventionDto, toScanStateDto } from './helpers.js';
 import { groundConventions, type GroundedConvention } from './grounding.js';
 import { mergeDecisions } from './merge.js';
@@ -217,8 +220,7 @@ export class ConventionsService {
         return;
       }
 
-      const { provider, model } = await resolveFeatureModel(
-        this.container,
+      const { provider, model } = await new SettingsFeatureModelResolver(this.container.db).resolve(
         workspaceId,
         CONVENTIONS_FEATURE_MODEL_ID,
       );
@@ -359,7 +361,7 @@ export class ConventionsService {
     const evidenceFiles = evidenceFilesOf(
       accepted.map((row) => ({ rule: row.rule, evidence: row.evidence ?? [] })),
     );
-    const skills = new SkillsService(this.container);
+    const skills = this.container.conventionsSkills;
 
     const skill = input.skillId
       ? await skills.update(workspaceId, input.skillId, {

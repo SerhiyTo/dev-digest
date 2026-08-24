@@ -188,6 +188,61 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-24: a THIRD confirmed instance of the `Container`-getter port trick
+  below, with a new wrinkle: when the sibling's own class ALSO takes
+  `Container` in its constructor (the §3 `container-only-in-composition-root`
+  violation), wiring `get conventionsSkills(): ConventionsSkillsPort { return
+  (this._conventionsSkills ??= new SkillsService(this)); }` in
+  `platform/container.ts` adds not only the expected `platform-not-to-modules`
+  warning but a NEW `no-circular` warning too — `skills/service.ts →
+  container.ts → skills/service.ts` — because `SkillsService`'s own
+  constructor closes the loop back to `Container`. `blastSource`/
+  `briefFileRoles` (the two prior instances) never triggered this because
+  `BlastService`/`SmartDiffFileRoleRepository` do NOT take `Container`, only
+  a narrow deps object. Both are `warn`, so it's still a legal trade, but
+  budget one extra warning line per such getter, not just the one
+  `platform-not-to-modules` line (evidence: server/src/platform/container.ts
+  `get conventionsSkills()`; `cd server && npx depcruise --config
+  .dependency-cruiser.cjs src` before/after: 47→50 warnings, 0 errors)
+- 2026-08-24: a pure helper used by exactly ONE other slice besides its own is
+  the `modules/_shared/` case, not the port-getter case — `skills/diff.ts`'s
+  `skillBodyPatch` (unified-diff formatting over the `diff` npm package, zero
+  DB/framework deps) moved bodily to `modules/_shared/diff.ts` and both
+  `skills/service.ts` and `conventions/service.ts` now import it from there.
+  The port-getter trick above is for reaching a sibling's STATEFUL,
+  Container-backed service; a stateless pure function crossing two slices is
+  cheaper to promote to `_shared` than to wrap in a port (evidence:
+  server/src/modules/_shared/diff.ts; server/src/modules/skills/service.ts;
+  server/src/modules/conventions/service.ts)
+- 2026-08-24: a THIN ring-2 wrapper module with exactly one cross-slice
+  caller is sometimes cheaper to bypass entirely than to port or relocate.
+  `modules/settings/feature-models.ts`'s `resolveFeatureModel(container, ...)`
+  was ONLY called by `conventions/service.ts` and does nothing but
+  `new SettingsFeatureModelResolver(container.db).resolve(...)` — three other
+  modules (`intent/routes.ts`, `onboarding/routes.ts`, `brief/routes.ts`)
+  already construct `SettingsFeatureModelResolver` directly from
+  `adapters/settings/feature-models.js` (ring 3) instead of going through the
+  `modules/settings/` wrapper. Matching that existing precedent in
+  `conventions/service.ts` (`new SettingsFeatureModelResolver(this.container.db)
+  .resolve(...)`) removed the `no-cross-slice-imports` error with a one-line
+  change and zero new files — no depcruise rule bans a `service.ts` from
+  importing `src/adapters/` directly (only Fastify and Drizzle/db-schema are
+  banned outside ring 3), and `brief/service.ts` already does exactly this for
+  `adapters/git/diff-parser.js` (evidence:
+  server/src/modules/conventions/service.ts; server/src/modules/intent/routes.ts:6;
+  server/src/modules/brief/service.ts:12)
+- 2026-08-24: a same-module file that does cross-cutting Drizzle joins outside
+  `repository.ts` (e.g. `skills/stats.ts`, deliberately kept apart from
+  `repository.ts` per its own header comment) satisfies
+  `drizzle-only-in-ring-3` by moving into a `repository/` SUBFOLDER
+  (`^src/modules/[^/]+/repository/` also matches ring 3) rather than merging
+  into the single `repository.ts` file — `reviews/repository/{pull,review,run}
+  .repo.ts` already establishes this split as a real pattern, not a one-off.
+  `skills/stats.ts` → `skills/repository/stats.ts` needed only relative-import
+  depth fixes (`../../db/...` → `../../../db/...`, `./constants.js` →
+  `../constants.js`); its sole caller `skills/service.ts` updated one import
+  line (evidence: server/src/modules/skills/repository/stats.ts;
+  server/src/modules/reviews/repository/pull.repo.ts)
 - 2026-08-24: to reach a sibling slice's Container-held service from a NEW
   slice under `no-cross-slice-imports` (depcruise `severity: 'error'` with
   `tsPreCompilationDeps: true`, so even `import type` fails), declare the port

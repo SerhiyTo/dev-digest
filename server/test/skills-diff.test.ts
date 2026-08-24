@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { skillBodyPatch } from '../src/modules/skills/diff.js';
+import { skillBodyPatch } from '../src/modules/_shared/diff.js';
 
 /**
  * Pure unit tests for the skill-body diff (no DB). The client renders this patch

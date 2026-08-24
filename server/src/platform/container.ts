@@ -46,6 +46,8 @@ import type { BlastSource, FileRoleSource } from '../modules/brief/ports.js';
 import { BriefRepository } from '../modules/brief/repository.js';
 import { SmartDiffFileRoleSource } from '../modules/brief/adapters.js';
 import { classifyPath } from '../modules/smart-diff/classify.js';
+import type { ConventionsSkillsPort } from '../modules/conventions/ports.js';
+import { SkillsService } from '../modules/skills/service.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -98,6 +100,7 @@ export class Container {
   private _priceBook?: PriceBook;
   private _blastSource?: BlastSource;
   private _briefFileRoles?: FileRoleSource;
+  private _conventionsSkills?: ConventionsSkillsPort;
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
     this.config = config;
@@ -202,6 +205,10 @@ export class Container {
   get briefFileRoles(): FileRoleSource {
     this._briefFileRoles ??= new SmartDiffFileRoleSource(new BriefRepository(this.db), classifyPath);
     return this._briefFileRoles;
+  }
+
+  get conventionsSkills(): ConventionsSkillsPort {
+    return (this._conventionsSkills ??= new SkillsService(this));
   }
 
   async github(): Promise<GitHubClient> {

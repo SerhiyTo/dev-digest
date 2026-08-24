@@ -1,8 +1,8 @@
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
-import type { Db } from '../../db/client.js';
-import * as t from '../../db/schema.js';
+import type { Db } from '../../../db/client.js';
+import * as t from '../../../db/schema.js';
 import type { SkillStats } from '@devdigest/shared';
-import { STATS_WINDOW_DAYS } from './constants.js';
+import { STATS_WINDOW_DAYS } from '../constants.js';
 
 /**
  * Read-only cross-module aggregation behind the Stats tab:
