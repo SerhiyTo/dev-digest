@@ -16,7 +16,6 @@ export interface ConventionSkillPatch {
   body?: string;
 }
 
-/** The subset of the skills feature conventions needs: create/update a skill from a merge. */
 export interface ConventionsSkillsPort {
   create(workspaceId: string, input: ConventionSkillWrite): Promise<Skill>;
   update(

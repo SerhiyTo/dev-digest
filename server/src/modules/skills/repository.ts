@@ -11,7 +11,8 @@ import { isBodyChange } from './helpers.js';
  * owns writes to it. Workspace-scoped throughout.
  */
 
-export type SkillRow = typeof t.skills.$inferSelect;
+import type { SkillRow } from '../../db/rows.js';
+export type { SkillRow };
 export type SkillVersionRow = typeof t.skillVersions.$inferSelect;
 
 /** A skill plus how many agents link to it (one aggregate query, never N+1). */
