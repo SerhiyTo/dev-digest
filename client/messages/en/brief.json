@@ -2,13 +2,79 @@
   "block": {
     "intent": "Intent",
     "risks": "Risks",
-    "history": "PR history"
+    "history": "PR history",
+    "brief": "PR Brief"
   },
   "noRisks": "No notable risks flagged.",
   "noHistory": "No prior PRs overlap these files.",
   "overlap": "{count} overlap",
   "unavailable": "Brief not available yet.",
-  "unavailableHint": "Run a review or open the PR to compute it.",
+  "unavailableHint": "Generating the brief calls a paid model — press Generate when you want one.",
+  "generate": "Generate brief",
+  "regenerate": "Regenerate brief",
+  "generating": "Generating…",
+  "mergeRisk": {
+    "label": "Merge risk",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High"
+  },
+  "blocking": {
+    "control": "Why this may not be safe to merge",
+    "title": "Blocking reasons",
+    "count": "{count, plural, one {# reason} other {# reasons}}",
+    "overflow": "{count} more not shown",
+    "empty": "No blocking reasons."
+  },
+  "disagreement": "The review says {verdict}, the brief rates merge risk {band}.",
+  "crossModel": {
+    "withReviews": "This brief was written by {briefModel}. The findings were written by {reviewModels}. A different model may reach a different conclusion.",
+    "briefOnly": "This brief was written by {briefModel}. A different model may reach a different conclusion."
+  },
+  "cost": {
+    "line": "{tokensIn} in · {tokensOut} out · {cost}",
+    "lineNoCost": "{tokensIn} in · {tokensOut} out"
+  },
+  "badges": {
+    "partial": "Partial",
+    "truncated": "Truncated",
+    "stale": "Stale"
+  },
+  "degraded": {
+    "reason": {
+      "no_data": "The repository has not been indexed yet.",
+      "no_files": "This PR does not touch any files.",
+      "flag_off": "Blast radius indexing is turned off for this repository.",
+      "index_failed": "The last index attempt failed.",
+      "index_partial": "The repository index is incomplete.",
+      "repo_too_large": "This repository is too large for a full index.",
+      "unknown": "This result is best-effort — the repository index is incomplete."
+    }
+  },
+  "reviewFocus": {
+    "title": "Review focus",
+    "empty": "No specific lines flagged for review focus."
+  },
+  "footer": {
+    "generatedFrom": "Generated {time} from {sha}"
+  },
+  "confirm": {
+    "title": "Generate the PR brief?",
+    "body": "This calls a paid model to write the brief.",
+    "lastCost": "The last generation cost {cost}.",
+    "cta": "Generate"
+  },
+  "failure": {
+    "title": "Brief generation failed",
+    "detail": "{error}",
+    "cost": "This attempt cost {cost}"
+  },
+  "error": {
+    "title": "Could not load the brief."
+  },
+  "fileSummary": {
+    "label": "What this does"
+  },
   "intent": {
     "title": "Intent",
     "inScope": "In scope",

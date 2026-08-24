@@ -40,6 +40,12 @@ import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
+import { BlastRepository } from '../modules/blast/repository.js';
+import { BlastService } from '../modules/blast/service.js';
+import type { BlastSource, FileRoleSource } from '../modules/brief/ports.js';
+import { BriefRepository } from '../modules/brief/repository.js';
+import { SmartDiffFileRoleSource } from '../modules/brief/adapters.js';
+import { classifyPath } from '../modules/smart-diff/classify.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -90,6 +96,8 @@ export class Container {
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
   private _priceBook?: PriceBook;
+  private _blastSource?: BlastSource;
+  private _briefFileRoles?: FileRoleSource;
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
     this.config = config;
@@ -181,6 +189,19 @@ export class Container {
       }
     }, estimateCost);
     return this._priceBook;
+  }
+
+  get blastSource(): BlastSource {
+    this._blastSource ??= new BlastService({
+      store: new BlastRepository(this.db),
+      engine: this.repoIntel,
+    });
+    return this._blastSource;
+  }
+
+  get briefFileRoles(): FileRoleSource {
+    this._briefFileRoles ??= new SmartDiffFileRoleSource(new BriefRepository(this.db), classifyPath);
+    return this._briefFileRoles;
   }
 
   async github(): Promise<GitHubClient> {

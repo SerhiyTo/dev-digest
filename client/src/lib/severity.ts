@@ -1,4 +1,4 @@
-import type { FindingRecord, ReviewRecord, Severity } from "@devdigest/shared";
+import type { CiFailOn, FindingRecord, ReviewRecord, Severity } from "@devdigest/shared";
 
 export const SEVERITIES: readonly Severity[] = ["CRITICAL", "WARNING", "SUGGESTION"] as const;
 
@@ -41,6 +41,18 @@ export function severityRank(severity: string): number {
 
 export function sortBySeverity(findings: FindingRecord[]): FindingRecord[] {
   return [...findings].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+}
+
+const GATE_MAX_RANK: Record<CiFailOn, number> = {
+  never: -1,
+  critical: 0,
+  warning: 1,
+  any: 2,
+};
+
+export function meetsGate(severity: string, gate: CiFailOn | null | undefined): boolean {
+  const effectiveGate = gate ?? "critical";
+  return severityRank(severity) <= GATE_MAX_RANK[effectiveGate];
 }
 
 export function hasFindingAtSeverity(

@@ -2,8 +2,7 @@
 
 import React from "react";
 import { SectionLabel } from "@devdigest/ui";
-import { IntentCard } from "./_components/IntentCard";
-import { BlastRadiusCard } from "./_components/BlastRadiusCard";
+import { BriefPanel } from "./_components/BriefPanel";
 import { s } from "./styles";
 
 interface OverviewTabProps {
@@ -16,10 +15,7 @@ interface OverviewTabProps {
 export function OverviewTab({ prBody, prId, repoFullName, headSha }: OverviewTabProps) {
   return (
     <>
-      <div style={s.cardGrid}>
-        <IntentCard prId={prId} />
-        <BlastRadiusCard prId={prId} repoFullName={repoFullName} headSha={headSha} />
-      </div>
+      <BriefPanel prId={prId} repoFullName={repoFullName} headSha={headSha} />
 
       {prBody && (
         <section>

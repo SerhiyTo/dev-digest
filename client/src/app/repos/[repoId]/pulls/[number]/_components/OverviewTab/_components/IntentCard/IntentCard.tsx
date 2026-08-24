@@ -12,6 +12,7 @@ import { s } from "./styles";
 
 interface IntentCardProps {
   prId: string | null;
+  risksSlot?: React.ReactNode;
 }
 
 function ScopeList({ title, color, items }: { title: string; color: string; items: string[] }) {
@@ -31,7 +32,7 @@ function ScopeList({ title, color, items }: { title: string; color: string; item
   );
 }
 
-function IntentBody({ record }: { record: PrIntentRecord }) {
+function IntentBody({ record, risksSlot }: { record: PrIntentRecord; risksSlot?: React.ReactNode }) {
   const t = useTranslations("brief.intent");
 
   return (
@@ -43,20 +44,24 @@ function IntentBody({ record }: { record: PrIntentRecord }) {
         <ScopeList title={t("outOfScope")} color="var(--text-muted)" items={record.out_of_scope} />
       </div>
 
-      {record.risk_areas.length > 0 && (
-        <div style={s.divider}>
-          <div style={s.scopeHead("var(--text-muted)")}>{t("riskAreas")}</div>
-          <div style={s.chips}>
-            {record.risk_areas.map((risk) => {
-              const token = riskToken(risk.severity);
-              return (
-                <Badge key={risk.label} icon={token.icon} color={token.c} bg={token.bg}>
-                  {risk.label}
-                </Badge>
-              );
-            })}
+      {risksSlot ? (
+        <div style={s.divider}>{risksSlot}</div>
+      ) : (
+        record.risk_areas.length > 0 && (
+          <div style={s.divider}>
+            <div style={s.scopeHead("var(--text-muted)")}>{t("riskAreas")}</div>
+            <div style={s.chips}>
+              {record.risk_areas.map((risk) => {
+                const token = riskToken(risk.severity);
+                return (
+                  <Badge key={risk.label} icon={token.icon} color={token.c} bg={token.bg}>
+                    {risk.label}
+                  </Badge>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )
       )}
 
       <div style={s.footer}>
@@ -79,7 +84,7 @@ function IntentBody({ record }: { record: PrIntentRecord }) {
   );
 }
 
-export function IntentCard({ prId }: IntentCardProps) {
+export function IntentCard({ prId, risksSlot }: IntentCardProps) {
   const t = useTranslations("brief.intent");
   const { data, isLoading, error, refetch } = usePrIntent(prId);
   const compute = useComputeIntent(prId);
@@ -112,7 +117,7 @@ export function IntentCard({ prId }: IntentCardProps) {
         </div>
       )}
 
-      {!isLoading && data && <IntentBody record={data} />}
+      {!isLoading && data && <IntentBody record={data} risksSlot={risksSlot} />}
 
       {!isLoading && !data && notComputed && (
         <EmptyState
@@ -128,6 +133,8 @@ export function IntentCard({ prId }: IntentCardProps) {
       {!isLoading && !data && !notComputed && error && (
         <ErrorState title={t("error.title")} body={(error as Error).message} onRetry={() => void refetch()} />
       )}
+
+      {!isLoading && !data && risksSlot && <div style={s.divider}>{risksSlot}</div>}
     </section>
   );
 }

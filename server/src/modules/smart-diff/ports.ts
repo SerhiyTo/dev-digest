@@ -1,3 +1,5 @@
+import type { PrBriefFileSummary } from '@devdigest/shared';
+
 export interface SmartDiffFileRow {
   path: string;
   additions: number;
@@ -17,10 +19,21 @@ export interface PrFindings {
   droppedSeverities: { severity: string; count: number }[];
 }
 
+export interface SmartDiffPullSummary {
+  id: string;
+  headSha: string;
+}
+
+export interface BriefSummaries {
+  headSha: string | null;
+  fileSummaries: PrBriefFileSummary[];
+}
+
 export interface SmartDiffStore {
-  getPullSummary(workspaceId: string, prId: string): Promise<{ id: string } | undefined>;
+  getPullSummary(workspaceId: string, prId: string): Promise<SmartDiffPullSummary | undefined>;
   getFiles(prId: string): Promise<SmartDiffFileRow[]>;
   getFindings(prId: string): Promise<PrFindings>;
+  getBriefSummaries(prId: string): Promise<BriefSummaries | undefined>;
 }
 
 export type Logger = {

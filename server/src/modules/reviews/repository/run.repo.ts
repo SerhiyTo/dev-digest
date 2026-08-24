@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { RunSummary, RunTrace } from '@devdigest/shared';
+import type { CiFailOn, RunSummary, RunTrace } from '@devdigest/shared';
 
 // ---- in-flight / history --------------------------------------------------
 
@@ -65,6 +65,7 @@ export async function listRunsForPull(
     ran_at: run.ranAt ? run.ranAt.toISOString() : null,
     score: run.score,
     blockers: run.blockers,
+    ci_fail_on: run.ciFailOn,
   }));
 }
 
@@ -155,6 +156,8 @@ export async function completeAgentRun(
     score?: number | null;
     /** Findings that tripped the agent's gate; 0 on failed/cancelled runs. */
     blockers?: number | null;
+    /** Gate policy the agent held at completion; null on failed/cancelled runs. */
+    ciFailOn?: CiFailOn | null;
     /** Failure reason (status='failed') / cancellation note. Null clears it. */
     error?: string | null;
   },
@@ -171,6 +174,7 @@ export async function completeAgentRun(
       grounding: values.grounding,
       score: values.score ?? null,
       blockers: values.blockers ?? null,
+      ciFailOn: values.ciFailOn ?? null,
       error: values.error ?? null,
     })
     .where(eq(t.agentRuns.id, runId));

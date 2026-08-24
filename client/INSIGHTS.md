@@ -11,6 +11,30 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-08-24: composing an existing feature card INTO a new section component
+  (`IntentCard`/`BlastRadiusCard` moved inside `BriefPanel` for the PR Brief
+  feature) requires deleting the old top-level mount in the same commit, or the
+  card renders twice — once from its old call site, once from the new section.
+  `OverviewTab.tsx` now mounts only `BriefPanel`, which itself renders
+  `IntentCard` and `BlastRadiusCard` in its card grid; check the section's own
+  render output for the moved components before assuming the old page-level
+  mount is still needed (evidence:
+  client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/OverviewTab.tsx
+  — only `<BriefPanel .../>`; BriefPanel.tsx:190-191 — `<IntentCard .../>` and
+  `<BlastRadiusCard .../>` inside `s.cardGrid`)
+- 2026-08-24: a pure domain helper that formats a user-facing STRING (not just
+  a value) is the wrong place for that string once i18n needs to own the
+  wording — `lib/brief.ts`'s `costLine()` returns a hardcoded English
+  `"12,345 in / 678 out · $0.02"`, but `BriefPanel` never calls it; it calls
+  `t("cost.line", {...})`/`t("cost.lineNoCost", {...})` directly from the
+  `brief` namespace instead, because AC-77 required every brief string to come
+  through next-intl. The helper still exists (and is still tested) but is dead
+  in production — a pure `lib/*.ts` module should return the DATA a formatted
+  string needs (tokens, cost) and let the component interpolate it via `t()`,
+  not pre-assemble the sentence itself (evidence: client/src/lib/brief.ts:41-48
+  `costLine`; client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/BriefPanel.tsx:86-87
+  calling `t("cost.line", ...)` directly; `grep -rn "costLine" src/` outside
+  `brief.test.ts` returns only the definition)
 - 2026-08-23: NEVER debounce an ARRAY through the usual
   `useState(value)` + `useEffect(() => setTimeout(() => setSettled(value)), [value])`
   hook. The array is rebuilt on every render, so its identity changes, the
@@ -28,6 +52,32 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-24: when a live-computed value (`composeBlockingReasons(...).length`)
+  replaces a frozen one (`run.blockers`) as a component's source of truth, widen
+  the prop to carry the raw domain objects the computation needs (the full
+  `ReviewRecord` + the run's `ci_fail_on`), not the pre-derived scalar — the
+  caller (`BriefPanel`) stopped computing `blockers` itself and the callee
+  (`BriefVerdictStrip`) now calls `composeBlockingReasons` internally, so the
+  badge count and the hover card's row count can never read from two different
+  places and disagree again. `BriefVerdictStripReview.review: ReviewRecord` +
+  `.ciFailOn: CiFailOn | null` replaced the old `.blockers: number` field for
+  exactly this reason (evidence:
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/helpers.ts`
+  `stripReviewFrom`; `BriefVerdictStrip.tsx`'s `blockingReasons` /
+  `liveBlockerCount`).
+- 2026-08-24: the Overview tab now has TWO differently-priced paid controls in
+  one section, and they are told apart only by their LABEL, not by position —
+  `IntentCard`'s own Recompute control (`t("recompute")`/`t("compute")`, `intent`
+  namespace) and `BriefPanel`'s Generate/Regenerate control
+  (`t("regenerate")`/`t("generating")`, `brief` namespace) both render inside
+  `BriefPanel`'s card grid after the PR Brief feature moved `IntentCard` in, so
+  proximity no longer distinguishes which button triggers which paid call. Any
+  future paid control added to this section needs its own visibly distinct
+  label for the same reason (evidence:
+  client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/IntentCard/IntentCard.tsx:97
+  `t("recompute")`/`t("compute")`;
+  client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/BriefPanel.tsx:156
+  `t("regenerate")`/`t("generating")`)
 - 2026-08-23: `client/src/vendor/ui/nav.ts` IS editable, despite the general
   "vendored, treat as read-only" rule for `src/vendor/ui/` — SPEC-02 (AC-39,
   AC-57) required adding exactly one item to `NAV`. The `Onboarding Tour` entry
@@ -189,6 +239,30 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-24: a plan's own `Verify:` line can be a false green if it embeds a
+  `client/`-prefixed path AFTER the command already does `cd client` — vitest's
+  `include` glob is `src/**/*.test.{ts,tsx}`, so
+  `cd client && pnpm exec vitest related --run "client/src/…/Foo.tsx"` resolves
+  to nothing, prints `No test files found, exiting with code 0`, and exits
+  successfully without running a single test. Always re-derive the real command
+  by dropping the leading `client/` segment (`--run "src/…/Foo.tsx"`) and confirm
+  it actually lists test files before trusting a green run reported against the
+  plan's literal text (evidence: ran both forms for T9 of
+  `docs/plans/2026-08-24-pr-why-risk-brief-blocking-reasons.md` — the `client/`-
+  prefixed one printed "No test files found"; the corrected one ran 28 tests).
+- 2026-08-24: `fireEvent.focus(descendantButton)` DOES reach an ancestor's
+  `onFocusCapture` in jsdom + RTL, even though native `focus` does not bubble —
+  the capture phase of `dispatchEvent` still walks every ancestor regardless of
+  the event's `bubbles` flag, only the bubble phase is skipped. This is what
+  makes hover-card components that put `onFocusCapture`/`onBlurCapture` on a
+  wrapping anchor (`BlockingReasonsCard`, copied from `FindingsHoverCard`)
+  actually keyboard-openable, and it is safe to assert by firing focus directly
+  on the real focusable descendant (an `IconBtn`'s `<button>`) rather than on the
+  anchor span itself (evidence:
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/BriefVerdictStrip.test.tsx`
+  "keeps the badge count and the opened list's row count in sync after a
+  dismissal (AC-85)" — `fireEvent.focus(control)` where `control` is the
+  `IconBtn` button, opens the portal-rendered `role="tooltip"` card).
 - 2026-08-23: `@testing-library/user-event` is NOT a dependency of `client/`
   (absent from `package.json`) even though the `react-testing-library` skill's
   own examples import it unconditionally — a test that does
@@ -289,6 +363,19 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-24: T9 of the blocking-reasons/design-fidelity amendment — rebuilt
+  `BriefVerdictStrip` to always render the merge-risk band (AC-83) with the
+  review's verdict/score/donut alongside it when a review exists, moved the
+  regenerate control and the cost line into the strip (AC-95/AC-96), added the
+  `PR Brief` section label to `BriefPanel` (AC-94), and wired the live
+  `composeBlockingReasons` count in place of the frozen `run.blockers` (AC-85).
+  Appended insights on the plan's own `Verify:` false-green, the
+  capture-phase-focus RTL mechanism, and the slot-prop-widening pattern.
+- 2026-08-24: L05 PR Why + Risk Brief — appended insights on the two paid
+  controls sharing the Overview tab (AC-81), the composed-section duplicate-mount
+  hazard from moving `IntentCard`/`BlastRadiusCard` into `BriefPanel`, and the
+  bypassed `costLine()` helper in favour of direct `t()` calls for i18n
+  ownership. No code changed in this task.
 - 2026-08-23: L05 Project Context review fixes — surfaced every attachment
   mutation failure in `DocAttachPanel` as a per-`code` banner (409/400/404/500
   plus an `err.message` fallback), and made the repo scoping explicit: the

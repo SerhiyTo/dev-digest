@@ -309,6 +309,7 @@ export class ReviewRunExecutor {
         grounding,
         score: outcome.review.score,
         blockers,
+        ciFailOn: agent.ciFailOn,
         error: null,
       });
 

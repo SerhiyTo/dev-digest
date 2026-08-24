@@ -222,6 +222,75 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('denormalizes the agent gate onto the run at completion, frozen against a later agent edit, written only on the done path (AC-93)', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: {
+          name: 'Gate Agent',
+          provider: 'openai',
+          model: 'gpt-4.1',
+          system_prompt: 'gate',
+          ci_fail_on: 'warning',
+        },
+      })
+    ).json();
+    expect(agent.ci_fail_on).toBe('warning');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/pulls/${pr.id}/review`,
+      payload: { agentId: agent.id },
+    });
+    const runId = res.json().runs[0].run_id;
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    // the run's own row denormalizes the gate the agent held at completion —
+    // run-executor.ts's done-path completeAgentRun call passes agent.ciFailOn.
+    const [runRow] = await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.id, runId));
+    expect(runRow!.ciFailOn).toBe('warning');
+
+    // and listRunsForPull's DTO carries it through GET /pulls/:id/runs
+    const timelineBefore = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(
+      timelineBefore.find((r: { run_id: string }) => r.run_id === runId).ci_fail_on,
+    ).toBe('warning');
+
+    // editing the agent's CURRENT gate afterward must NOT rewrite the historical
+    // run — this is AC-93's whole reason for denormalizing rather than reading
+    // the gate live off the agent at read time.
+    await app.inject({
+      method: 'PUT',
+      url: `/agents/${agent.id}`,
+      payload: { ci_fail_on: 'never' },
+    });
+    const timelineAfter = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(
+      timelineAfter.find((r: { run_id: string }) => r.run_id === runId).ci_fail_on,
+    ).toBe('warning');
+
+    // a run that never reached the done path (failure/cancel) never has a gate
+    // written onto it — the two failure/cancel completeAgentRun call sites in
+    // run-executor.ts omit ciFailOn entirely, so the column stays null and the
+    // DTO must report it as null rather than inventing a value.
+    const [failedRun] = await pg.handle.db
+      .insert(t.agentRuns)
+      .values({ workspaceId, prId: pr.id, status: 'failed', costUsd: null })
+      .returning();
+    const timelineWithFailure = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })
+    ).json();
+    expect(
+      timelineWithFailure.find((r: { run_id: string }) => r.run_id === failedRun!.id).ci_fail_on,
+    ).toBeNull();
+
+    await app.close();
+  });
+
   it('a linked enabled skill lands in the persisted trace; the same skill disabled leaves no Skills block', async () => {
     const app = await appWith(REVIEW_FIXTURE);
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
