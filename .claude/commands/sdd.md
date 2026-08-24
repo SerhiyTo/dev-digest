@@ -28,7 +28,7 @@ module spec — were the ones that got skipped.
 | Command | Step | Agents it drives | Artifact |
 |---|---|---|---|
 | [`/sdd`](sdd.md) | 0 — where am I | none | this table, and the next command |
-| [`/sdd-spec`](sdd-spec.md) | 1 — the requirement | `spec-creator` (two phases, then `approve`) | `specs/YYYY-MM-DD-<feature>.md` |
+| [`/sdd-spec`](sdd-spec.md) | 1 — the requirement | `spec-creator` (two phases, then `resolve`, then `approve`) | `specs/YYYY-MM-DD-<feature>.md` |
 | [`/sdd-plan`](sdd-plan.md) | 2 — the plan | `implementation-planner` | `docs/plans/YYYY-MM-DD-<feature>.md` |
 | [`/sdd-build`](sdd-build.md) | 3 — the change | `implementer` ×N, then `plan-verifier` **gate** | code on disk |
 | [`/sdd-review`](sdd-review.md) | 4 — the second opinion | `architecture-reviewer` ‖ `security-auditor` ‖ `test-writer` | findings + tests |
