@@ -59,6 +59,15 @@ now. Any future paid control added to this section needs the same treatment
 
 ## The verdict strip: two mutually exclusive renderings
 
+> **Superseded by AC-83–AC-98, below.** This section describes the strip's
+> shape before the amendment; the `review` prop's shape has since changed
+> (`blockers` replaced by the whole `review: ReviewRecord` plus `ciFailOn`) and
+> the merge-risk band no longer disappears when a review is present. Kept here
+> because the composition rule two paragraphs down — the parent decides which
+> data to pass, the strip fetches nothing — is still exactly true; see
+> `## Amendment (AC-83–AC-98): the strip stops being either/or` for the current
+> rendering.
+
 **Component:** `.../BriefVerdictStrip/BriefVerdictStrip.tsx`
 **Behavior:** takes `summary`, `mergeRisk` and an optional `review` prop
 (`{ verdict, summary, score, findingsCount, blockers }`). With `review` present
@@ -82,7 +91,123 @@ live behind `usePrReviews`/`usePrRuns`, which already feed the pre-existing
 presentational component and reuses `VERDICT_META`/`CircularScore` from
 `VerdictBanner` rather than duplicating either.
 
-## Merge-risk band: colour and word, never colour alone
+## Amendment (AC-83–AC-98): the strip stops being either/or
+
+AC-83–AC-98 fix a defect found against a real pull request: an approving
+review with score 100 stood over a brief that had derived `high` merge risk,
+and the brief's own judgement left the screen entirely the moment a review
+existed. The fix removes the branch, not adds a third one.
+
+```mermaid
+flowchart LR
+  FIND["review.findings<br/>non-dismissed"] --> COMPOSE["composeBlockingReasons<br/>BriefVerdictStrip/helpers.ts"]
+  GATE["run.ci_fail_on<br/>via meetsGate"] --> COMPOSE
+  RISK["brief.risks<br/>severity = high"] --> COMPOSE
+  COMPOSE -->|"findings by severity desc,<br/>then risks, capped at 8"| LIVE["one BlockingReason[]"]
+  LIVE --> BADGE["blockers count badge<br/>BriefVerdictStrip.tsx"]
+  LIVE --> CARD["BlockingReasonsCard<br/>hover/focus, portal"]
+```
+
+**`composeBlockingReasons`** reads two sources — the review's live findings
+filtered against the run's recorded gate, and the brief's own `high`-severity
+risks — into **one** array; the **badge** and the **card** both render off that
+same array, so there is exactly one number on screen, never two that can
+disagree. Gate lookup: `client/src/lib/severity.ts:meetsGate`.
+
+**Component:** `.../BriefVerdictStrip/BriefVerdictStrip.tsx`
+**Behavior:** renders the merge-risk band unconditionally — `s.iconBox`,
+`s.bandLabel` and the summary paragraph render whether or not `review` is
+present (AC-83). When `review` is present it additionally renders the verdict
+label, that review's own summary, `CircularScore`, and a finding/blocker badge
+in `s.reviewSection`; the `if (review) return <VerdictBanner …/>` early return
+is gone — both judgements render in the same strip now, and a mismatch between
+them is called out explicitly (see `judgementsDisagree` below), not hidden by
+picking one.
+
+**Component:** `.../BriefVerdictStrip/BriefVerdictStrip.tsx`,
+`.../BriefVerdictStrip/helpers.ts:composeBlockingReasons`
+**Behavior:** the badge's blocker count is `composeBlockingReasons(...).length`
+(`liveBlockerCount`), never `review.blockers` / `agent_runs.blockers` — that
+column still exists (`server/src/db/schema/runs.ts:30`) and is still written
+on every completed run, but nothing under `BriefVerdictStrip/` reads it. AC-85:
+dismissing a finding changes `liveBlockerCount` on the next render because
+`composeBlockingReasons` filters `!f.dismissed_at`; the frozen column would not
+have moved.
+
+**Component:** `.../BriefVerdictStrip/helpers.ts:composeBlockingReasons`
+**Behavior:** a **blocking reason** is defined as the union of blocker
+findings and high-severity risks (AC-84) — a non-dismissed `review.findings`
+entry whose severity meets `meetsGate(severity, run.ci_fail_on)`, unioned with
+`risks` entries at `severity === "high"`. Findings are sorted by severity
+descending (`sortBySeverity`) and listed first; risks follow in the order the
+brief stored them, never re-sorted by severity (AC-87). The combined list is
+capped for display by `visibleBlockingReasons` at `MAX_BLOCKING_ROWS` (8), with
+an `{count} more not shown` overflow line for the remainder (AC-91).
+
+**Component:** `.../BriefVerdictStrip/helpers.ts:BlockingReason`
+**Behavior:** the interface is `{ severity, title, ref: { path, startLine,
+endLine } }` — no `rationale`, no `explanation`, from either a `FindingRecord`
+or a `Risk`. `findingReason`/`riskReason` construct it by hand rather than
+spreading the source object, so there is no field on the type through which
+model-authored prose (a finding's `rationale`, a risk's `explanation`) could
+reach `BlockingReasonsCard` (AC-88). The reference is exactly one `file:line`
+per row, never the finding's/risk's full `file_refs` array.
+
+**Component:** `.../BriefVerdictStrip/BriefVerdictStrip.tsx`,
+`.../_components/BlockingReasonsCard/BlockingReasonsCard.tsx`
+**Behavior:** the info control (`infoControl`) renders whenever
+`blockingReasons.length > 0`, independent of whether `review` is present —
+including a pull request with no review at all but a brief-derived `high` risk
+(AC-86). Absent any blocking reason, in either rendering, no control renders.
+The card itself carries `role="tooltip"`, opens on hover (`OPEN_DELAY_MS` /
+`CLOSE_DELAY_MS`) or keyboard focus, closes on `Escape`, and renders through a
+`createPortal` into `document.body` rather than inside the strip's own DOM
+subtree (AC-90) — reusing `FindingsHoverCard`'s contract (open/close delays,
+scroll-dismiss) rather than re-deriving it, per the root spec's own directive
+at `specs/2026-08-24-pr-why-risk-brief.md` AC-90. A reference links to GitHub
+when `repoFullName`/`headSha` are both known and renders as plain monospace
+text otherwise (AC-89), the same degradation rule `## File-ref rendering:
+link when possible, plain text otherwise` above already set for `RiskList` and
+`ReviewFocusCard`.
+
+**Component:** `.../BriefVerdictStrip/helpers.ts:judgementsDisagree`
+**Behavior:** `true` when `mergeRisk === "high"` and either `verdict ===
+"approve"` or the live blocker count is `0` — the AC-92 case the amendment
+exists to surface, rendered as a one-line disagreement sentence
+(`s.disagreement`) directly under the review section rather than left for the
+reader to notice by comparing two numbers themselves.
+
+**Why X and not Y — `BlockingReasonsCard` was copied, not imported.**
+`client/src/app/repos/[repoId]/pulls/_components/FindingsHoverCard/` (the pulls
+**list** route) already renders a hover/portal card with the same mechanics —
+delayed open, `Escape` to close, viewport-aware placement, a portal into
+`document.body`. `BlockingReasonsCard` under
+`.../pulls/[number]/_components/BriefVerdictStrip/_components/` duplicates
+that mechanism rather than importing it, because a route-feature importing
+another route-feature's component is the one import direction
+`frontend-ui-architecture` rules out — `pulls/_components/` and
+`pulls/[number]/_components/` are two different route features. A later
+self-review flagged that the better fix is promoting the shared hover/portal
+mechanics to a common layer (`src/components/`) so a third route-feature
+never has to copy it again; **that promotion has not happened** — this is the
+known cost of the copy, recorded here as still owed, not as done.
+
+**Why `meetsGate` is a second definition of `reviewer-core`'s gate rank, not a
+shared one.** `reviewer-core/src/output/to-review.ts` already defines
+`SEV_RANK`/`FAIL_ON_MIN_RANK` and the `wouldFail`/`countBlockers`-style logic
+`meetsGate` mirrors, but `reviewer-core/` cannot be imported from `client/` —
+there is no dependency path between the two packages (see `CLAUDE.md`'s module
+table: `reviewer-core` has no client-facing export surface, and `client/` only
+ever calls the server's HTTP API). `client/src/lib/severity.ts:meetsGate`
+re-declares the same rank table (`GATE_MAX_RANK`) locally, defaulting a
+`null`/`undefined` gate to `"critical"` — the same default the server documents
+for a `null` `ci_fail_on` column (`server/specs/2026-08-24-pr-why-risk-brief.md`
+`## Amendment`). This holds the definition at **two** copies (server's
+`reviewer-core` and client's `severity.ts`) rather than letting a third one
+drift in from a route component, matching the precedent already set for
+`SEV_COLOR` earlier in this document.
+
+
 
 **Component:** `client/src/lib/brief.ts:mergeRiskToken`
 **Behavior:** maps each of the three `MergeRiskBand` values to a `SEV` token
@@ -271,6 +396,15 @@ re-exports `PrBrief` as a **type** (`export type { PrBrief, SmartDiff } from
 it re-exports — no edit was needed at that line for any of the nine new
 `PrBrief` fields to reach a consumer that imports through it.
 
+**Amendment (AC-83–AC-98):** `RunSummary.ci_fail_on` (server's
+`vendor/shared/contracts/trace.ts:118`, additive `.nullish()` field) is
+consumed on the client only through `BriefPanel/helpers.ts:stripReviewFrom`,
+which reads `run?.ci_fail_on ?? null` into the `ciFailOn` field of
+`BriefVerdictStripReview` and passes it to `composeBlockingReasons`. No client
+type re-declares the field — `run_id` continues to be looked up in
+`usePrRuns`'s existing `RunSummary[]`, unchanged in shape apart from the one
+new nullish key.
+
 ## Client tests
 
 - `client/src/lib/brief.test.ts` — `mergeRiskToken` for all three bands;
@@ -293,6 +427,35 @@ it re-exports — no edit was needed at that line for any of the nine new
 - `.../BriefVerdictStrip/BriefVerdictStrip.test.tsx` — `CircularScore` present
   with a review and absent without one; the band label text differs from any
   score label.
+- `.../BriefVerdictStrip/BriefVerdictStrip.test.tsx` (AC-83–AC-98 amendment) —
+  the merge-risk band, verdict label, both counts and the donut all render
+  together for a PR with a review (AC-83); the band alone renders for a PR
+  without one (AC-83, AC-7 still holds for the no-review case); the info
+  control appears exactly when at least one blocking reason exists, with and
+  without a review, including a no-review PR carrying a `high` risk (AC-86);
+  the badge count and the opened card's row count stay in sync across a
+  dismissal (AC-85); the disagreement sentence appears when the verdict
+  approves but the band is `high`, and is absent when the judgements agree
+  (AC-92); the cost line renders in both the with-score and without-score
+  layouts (AC-96).
+- `.../BriefVerdictStrip/helpers.test.ts` — `composeBlockingReasons` unions
+  gated findings (severity descending) with `high` risks (stored order, AC-84,
+  AC-87), excludes a dismissed finding that would otherwise meet the gate,
+  excludes `medium`/`low` risks, and treats a `null` gate and a missing run
+  identically to `"critical"` (AC-93); each produced `BlockingReason` carries
+  only `severity`/`title`/`ref`, verified by asserting no
+  `rationale`/`explanation` key exists (AC-88); `visibleBlockingReasons`
+  returns every row under the cap and caps at 8 with a hidden count above it
+  (AC-91); `judgementsDisagree` is true for an approving verdict or a zero
+  live-blocker count against a `high` band, and false otherwise (AC-92).
+- `.../BlockingReasonsCard/BlockingReasonsCard.test.tsx` — the card renders
+  through a portal into `document.body`, outside the anchor's own subtree,
+  with `role="tooltip"`; opens on hover after `OPEN_DELAY_MS` and on keyboard
+  focus; closes on `Escape` (AC-90); a reference links to GitHub with
+  `repoFullName`/`headSha` known and renders as plain mono text otherwise
+  (AC-89); the overflow line appears above 8 reasons and is absent at or under
+  8 (AC-91); an empty `reasons` array renders the "No blocking reasons."
+  message; no row ever renders `rationale` or `explanation` text (AC-88).
 - `.../BriefPanel/BriefPanel.test.tsx` — all five states; both confirmation
   variants (with and without a known last cost); no request issued until
   confirmed; two distinct cost figures on screen after a failed regeneration;

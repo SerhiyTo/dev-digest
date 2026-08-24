@@ -315,6 +315,80 @@ would be the one change that could break the pre-existing (if reader-less)
 contract. Filling them from data the generation already loads for other
 reasons costs nothing extra and keeps the additive/MINOR verdict intact.
 
+## Amendment (AC-83–AC-98): `agent_runs.ci_fail_on`, denormalized on the done path only
+
+AC-83–AC-98 fix a client defect (see
+`client/specs/2026-08-24-pr-why-risk-brief.md` `## Amendment`): the verdict
+strip's blocker badge read the frozen `agent_runs.blockers` column, which a
+dismissal could no longer agree with. The fix moves the count client-side onto
+a live finding set gated by the run's own recorded policy — which requires the
+run to carry that policy at all. This section is the server-side half: the one
+new column that makes the gate readable per historical run.
+
+**Component:** `server/src/db/schema/runs.ts:33`
+**Behavior:** `ciFailOn: text('ci_fail_on', { enum: [...] })` — nullable, no
+default, no backfill. `server/src/db/migrations/0022_bent_master_mold.sql` is
+a bare `ALTER TABLE "agent_runs" ADD COLUMN "ci_fail_on" text;`, non-interactive
+per this repo's migration convention.
+
+**Component:** `server/src/modules/reviews/run-executor.ts` (the `'done'`
+`completeAgentRun` call, alongside `score`/`blockers`)
+**Behavior:** `ciFailOn: agent.ciFailOn` is passed only from the success path
+that also computes `blockers` via `countBlockers(keptFindings, agent.ciFailOn)`
+— the same policy value that produced the frozen `blockers` count now also
+lands on the row itself, so a later client-side re-derivation has something to
+gate against.
+
+**Component:** `server/src/modules/reviews/run-executor.ts` (`failAll`, and the
+outer `catch` block's `completeAgentRun` call)
+**Behavior:** neither failure/cancel call site includes a `ciFailOn` key in its
+`completeAgentRun` payload; `repository/run.repo.ts:completeAgentRun` defaults
+an absent `ciFailOn` to `null` (`values.ciFailOn ?? null`) in the same way it
+already defaults `score` and `blockers` — the failure and cancel paths leave
+the column null because a failed run produces no review whose gate anyone
+reads.
+
+**Why nullable with no default, rather than defaulting to `'critical'`.** A
+default would silently claim a gate policy for every run that predates this
+column — runs whose agent may have held `'warning'` or `'any'` at the time and
+whose actual policy is now unrecoverable from `agent_runs` alone. Leaving the
+column null and letting the **reader** supply the default keeps that
+uncertainty visible at the one place it is resolved:
+`client/src/lib/severity.ts:meetsGate` reads a `null`/`undefined` gate as
+`"critical"` — the strictest gate, so an unknown historical policy fails safe
+by under-counting blockers only, never by silently permitting more.
+
+**Component:** `server/src/vendor/shared/contracts/trace.ts:118`
+**Behavior:** `RunSummary.ci_fail_on: CiFailOn.nullish()` — `.nullish()`, not
+`.nullable()`.
+
+**Why `.nullish()` and not `.nullable()`.** `.nullable()` still requires the
+key to be present (typed `CiFailOn | null`) in `z.infer<typeof RunSummary>`;
+`.nullish()` makes the key optional as well (`CiFailOn | null | undefined`).
+Several `RunSummary` client-side fixtures are built as complete object
+literals for pre-existing fields and were never going to be revisited to add a
+new required key — `.nullable()` would have broken every one of them at
+`typecheck`, on a field most fixtures have no reason to care about.
+`server/test/contracts.test.ts:265-297` parses `ci_fail_on` absent, `null`, a
+valid enum value, and rejects an out-of-enum string, covering exactly this
+distinction.
+
+**Component:** `server/src/modules/reviews/repository/run.repo.ts:68`
+(`listRunsForPull`)
+**Behavior:** `ci_fail_on: run.ciFailOn` is one field in this function's
+hand-written return object, which is the entire wire shape of `GET
+/pulls/:id/runs` — no route in this codebase declares a `response:` schema
+(`server/CLAUDE.md`), so `RunSummary` validates nothing on the way out.
+
+**Why the field only reaches a client because this one mapping line was
+edited.** Adding `ci_fail_on` to the `RunSummary` Zod contract alone would have
+been silently inert: the contract is request-side-only in this codebase, and
+`listRunsForPull`'s object literal is the actual DTO a client receives. The
+contract change and this repository edit are two separate, both-required
+steps — the same gap `server/CLAUDE.md`'s Conventions section already
+documents ("edit a contract without its DTO and the contract silently lies"),
+made concrete here by the field this amendment adds.
+
 ## Contract impact
 
 Additive, **MINOR**, non-breaking — see `specs/2026-08-24-pr-why-risk-brief.md`
@@ -339,6 +413,14 @@ argument. On the server side specifically:
 - `pseudocode_summary` now populated on `GET /pulls/:id/smart-diff` for `core`/
   `wiring` files while the brief is fresh; the field was already `.nullish()`
   and is omitted, never `null`, when absent.
+- `+ agent_runs.ci_fail_on` (AC-83–AC-98 amendment) — nullable `text` column,
+  no default, no backfill; one non-interactive `ADD COLUMN` migration
+  (`server/src/db/migrations/0022_bent_master_mold.sql`). Written on the `done`
+  completion path only.
+- `RunSummary.ci_fail_on` (AC-83–AC-98 amendment) — new `.nullish()` field in
+  `vendor/shared/contracts/trace.ts`, surfaced on `GET /pulls/:id/runs` through
+  `listRunsForPull`'s hand-written DTO
+  (`server/src/modules/reviews/repository/run.repo.ts:68`).
 
 `server/src/vendor/shared/contracts/brief.ts` and `review-api.ts` are
 byte-identical to their `client/src/vendor/shared/contracts/` mirrors
@@ -416,6 +498,17 @@ Stripe key at `server/src/db/seed.ts:527-528`).
   `reviews.score` or `agent_runs.cost_usd` across a generation; a brief
   produced for a PR with zero review rows; and zero generation rows added
   across an import, a re-index and ten reads.
+- `server/test/contracts.test.ts:265-297` (AC-83–AC-98 amendment) —
+  `RunSummary` parses `ci_fail_on` absent, `null`, and a valid `CiFailOn` enum
+  value, and rejects an out-of-enum string.
+- `server/test/reviews.it.test.ts` (AC-83–AC-98 amendment) — "denormalizes the
+  agent gate onto the run at completion, frozen against a later agent edit,
+  written only on the done path (AC-93)": the completed run's row carries the
+  agent's `ci_fail_on` at the time it ran; `GET /pulls/:id/runs` surfaces the
+  same value; editing the agent's *current* gate afterward does not rewrite the
+  historical run's stored value; a run inserted directly with `status:
+  'failed'` and no `ciFailOn` reports `ci_fail_on: null` through the same DTO
+  rather than inventing a value.
 
 ## Out of scope
 

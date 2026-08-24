@@ -1,9 +1,75 @@
 # Spec: PR Why + Risk Brief
 Spec ID: SPEC-03
-Status: approved
-Verified: 2026-08-24 — **AC-1 – AC-82 are implemented in the working tree;
-AC-83 – AC-98 are specified and not yet built**, so this spec is `approved`
-rather than `implemented` and `/sdd-plan` runs next against those sixteen.
+Status: implemented
+Verified: 2026-08-24 — **AC-1 – AC-98 are implemented.** The sixteen amendment
+criteria `AC-83` – `AC-98` were built on branch `lab-5-hw` across five commits
+(`dda9d19`, `2fa7ef2`, `0853046`, `9df0af4`, `e37b8a3`) from
+`docs/plans/2026-08-24-pr-why-risk-brief-blocking-reasons.md`, reviewed, and
+traced criterion by criterion by `plan-verifier` in final mode, which returned
+COMPLETE after one fix round with this spec's declared set and the plan's
+coverage table identical and nothing dropped. Suites at HEAD: server 744 tests
+across 64 files including the integration lane, client 451 across 62, `e2e`
+typecheck clean, `dependency-cruiser` 0 errors. Each of the sixteen was
+re-checked against the tree at status transition: `AC-83`–`AC-93` at
+`BriefVerdictStrip.tsx`, its `helpers.ts` and
+`_components/BlockingReasonsCard/`, with `AC-93`'s null-gate reading at
+`client/src/lib/severity.ts:53-56`; `AC-94`–`AC-98` at `BriefPanel.tsx`,
+`BriefPanel/styles.ts` and `RiskList/`; and the `RunSummary.ci_fail_on` that
+`AC-84` and `AC-93` depend on at `server/src/vendor/shared/contracts/trace.ts:118`,
+written at completion by `server/src/modules/reviews/run-executor.ts:312` and
+mirrored byte-identically into `client/src/vendor/shared/`.
+
+**Five things are not claimed, because verification could not make the
+observation the criterion names.**
+
+1. **`AC-93`'s migration was never observed applied.**
+   `0022_bent_master_mold.sql` — `ALTER TABLE "agent_runs" ADD COLUMN
+   "ci_fail_on" text` — is in the tree and registered at index 22 of
+   `src/db/migrations/meta/_journal.json`, and the integration lane exercises
+   the column against Testcontainers Postgres
+   (`server/test/reviews.it.test.ts:238-288`, which also pins that editing the
+   agent's gate afterwards does not move the run's recorded one). Whether
+   `pnpm db:migrate` has actually run it against a live database is unverified:
+   there was no DB access during verification.
+2. **No e2e observation in this feature has ever been made live.**
+   `e2e/specs/10-pr-brief.flow.json` carries the amendment's two new assertions
+   — `"Merge risk: Medium"` (`AC-83`) and `"2 findings · 1 blockers"`
+   (`AC-85`) — alongside its pre-existing cost-line assertion, and only
+   `npm run typecheck` has ever run against that file. All three are unproven
+   against a real DOM. `AC-83` and `AC-85` are confirmed anyway by component and
+   unit tests that do run (`BriefVerdictStrip.test.tsx:85,125`,
+   `BriefVerdictStrip/helpers.test.ts:52,93`); what remains unproven is the
+   *seeded end-to-end* rendering, not the behaviour. Any criterion resting on
+   that flow alone — `AC-80`, already recorded below as observable only through
+   it — is therefore still not fully observed.
+3. **The i18n reword `AC-71` depends on is in the tree but not attributable to
+   this amendment.** `client/messages/en/brief.json:11` reads *"Generating the
+   brief calls a paid model — press Generate when you want one."*, which
+   satisfies `AC-71`. The file's only change on this branch is commit `2fa7ef2`,
+   which carries two plans' work at once, so whether any *other* pre-existing
+   key was reworded in the same pass cannot be separated out of git history.
+4. **`AC-97` is confirmed on the declared style, not on a computed width.** Its
+   stated observation is "the two columns' computed widths"; jsdom computes no
+   grid track widths, so `BriefPanel.test.tsx:352` asserts
+   `gridTemplateColumns === "minmax(0, 1fr) minmax(0, 1fr)"` instead
+   (`BriefPanel/styles.ts`, with `alignItems: "stretch"`). Equal declared tracks
+   are the same fact by construction, but this is an inspection of the rule and
+   not of the box.
+5. **One row of the design-provenance table did not ship.** Its copy row states
+   that `brief.block.risks` and `brief.reviewFocus.title` are "reworded in
+   place" to the frame's `RISK AREAS` and `REVIEW FOCUS — READ THESE FIRST`; the
+   tree still reads `"Risks"` and `"Review focus"`
+   (`client/messages/en/brief.json`). That row says in its own text that no
+   criterion turns on the wording, so nothing is unimplemented against an `AC` —
+   but the provenance table and the tree disagree, and a reader should be told
+   so rather than discover it.
+
+Two shipped behaviours are known, were accepted at close-out and were
+deliberately not fixed: the merge-risk severity vocabulary borrowed by the
+blocking-reasons card, and the keyboard reachability of that card's contents.
+Both are stated under `## Non-functional requirements` and both have an
+`## Edge cases` row, so that neither reads as a clean surface.
+
 The original 82 were checked against the working tree on 2026-08-24; 79 of the
 82 confirmed, and three are confirmed on the code path only: **AC-53**
 (the no-currency branch exists at `BriefPanel.tsx:87` but no test renders
@@ -330,12 +396,25 @@ tab inside a hover card.
   reader can count on screen.
 
 - **AC-86 (US-2)**: WHERE the pull request has at least one blocking reason, the
-  strip shall render an information control adjacent to the finding-count badge;
+  strip shall render an information control — adjacent to the finding-count badge
+  where that badge renders, and otherwise within the strip on its own row;
   otherwise it shall not render that control.
-  *Observed by*: the presence or absence of the control in the strip's title row,
-  against the length of AC-84's list. The design frame draws this control as an
-  `ⓘ` immediately after the counts badge — it is the one element of the strip the
-  shipped implementation omitted entirely.
+  *Observed by*: the presence or absence of the control within the strip, against
+  the length of AC-84's list, in both the reviewed and the unreviewed rendering of
+  one pull request. The design frame draws this control as an `ⓘ` immediately
+  after the counts badge — it is the one element of the strip the first
+  implementation omitted entirely.
+  **Why the criterion names two placements.** The frame only ever draws the
+  reviewed rendering, where the counts badge exists to sit beside. The gate is the
+  blocking-reason count alone (AC-84), not the presence of a review, so
+  `## Edge cases` requires this control on a pull request that has high-severity
+  risks and **no review at all** — a state with no badge on screen. Wording the
+  criterion as *adjacent to the badge* and nothing else made the two halves of
+  this spec contradict each other and would have made the required rendering
+  unsatisfiable; the implementation follows the edge-case table
+  (`BriefVerdictStrip.tsx`, `s.titleRow` under a review and `s.infoRow` without
+  one, pinned by `BriefVerdictStrip.test.tsx:102,116,235,244`). This corrects the
+  prose only. Nothing that was built changes.
 
 - **AC-87 (US-2)**: WHEN a user hovers or focuses the information control, the
   client shall display the blocking reasons as one list, blocker findings first
@@ -829,7 +908,9 @@ They carry no behaviour and change no contract.
 | A review approves while the brief derived `high` | Both are on the strip, and the strip says in words that they disagree — AC-6, AC-83, AC-92 |
 | A review requests changes while the brief derived `low` | Both are on the strip; no disagreement line, because the review being stricter than the brief is not the failure mode AC-92 guards — the reader is already being told to stop |
 | Blockers exist but no high-severity risk | The `ⓘ` renders and lists the blocker findings only — AC-84, AC-86 |
-| High-severity risks exist but the PR has no review at all | The `ⓘ` renders and lists the risks only; there is no blocker count to show beside it — AC-84, AC-86 |
+| High-severity risks exist but the PR has no review at all | The `ⓘ` renders and lists the risks only, on its own row inside the strip because there is no counts badge to sit beside — AC-84, AC-86 |
+| A risk row's severity indicator inside the blocking-reasons card | It renders the findings' `CRITICAL` badge, not the brief's `high`. Known, accepted, not fixed — see `## Non-functional requirements`, the accepted consequence on the severity vocabulary. No criterion rules on it |
+| A keyboard user opens the `ⓘ` and tabs onward | The card closes on blur before its file references can be reached, and the trigger has no `aria-describedby`. AC-90's stated observations still hold. Known, accepted, not fixed — see `## Non-functional requirements`, the accepted consequence on AC-90 |
 | Nothing blocks: no blocker finding, no high risk | No `ⓘ` at all — an information control that opens an empty card is noise — AC-86 |
 | Every blocker finding has since been dismissed | The badge reads 0 and the `ⓘ` disappears with it, while `agent_runs.blockers` keeps its frozen value for CI and the timeline — AC-85 |
 | 20 blocking reasons | 8 rows and a line stating the other 12 are not shown — AC-91 |
@@ -952,6 +1033,25 @@ focus and close on `Escape`, which is what `FindingsHoverCard` already does with
 `onFocusCapture`/`onBlurCapture` and a `keydown` listener. Its severity indicator
 is never colour alone — the existing `SeverityBadge` primitive carries the word.
 
+**Accepted consequence — AC-90 is satisfied literally and not in spirit.** As
+shipped, the blocking-reasons card is *reachable* by hover and by focus and it
+closes on `Escape`, which is every observation AC-90 names and every one the
+tests make (`BlockingReasonsCard.test.tsx:55,65,72,79`). Its **contents are not
+keyboard-navigable**: the portalled card carries `role="tooltip"` but no `id`,
+the `IconBtn` trigger carries no `aria-describedby` and has no prop that could
+set one (`client/src/vendor/ui/primitives/IconBtn.tsx`), so a screen reader is
+never told the tooltip describes the control; and the anchor's `onBlurCapture`
+closes the card, so a keyboard user tabbing onward destroys it before any of its
+`MonoLink` references can be reached. A sighted mouse user gets working links; a
+keyboard user gets a card they can open, read and never enter. This was known at
+close-out and accepted rather than fixed, because closing it properly means
+either giving the tooltip an id and the trigger a described-by — a change to a
+vendored `@devdigest/ui` primitive — or promoting the surface from a tooltip to a
+focus-trapping popover, which is a different component contract from the
+`FindingsHoverCard` precedent AC-90 points at. Revisit by amending AC-90 to name
+the tab order and the described-by relation as observations, rather than by
+patching the component against a criterion that does not ask for them.
+
 **Observability.** A generation logs `info` at start and at end with the pull
 request id, provider, model, token counts, cost, the counts of dropped file refs
 and dropped focus rows, and the degraded reason. **The prompt is never logged
@@ -974,6 +1074,28 @@ alternative invalidates a brief the moment the user runs the very review the
 brief was meant to help them read, pushing them toward a regeneration they did
 not need. Revisit if review-focus ordering turns out to move materially once
 findings exist.
+
+**Accepted consequence — a risk row in the blocking-reasons card wears the
+findings' severity vocabulary.** The two sources AC-84 unions are graded on two
+different scales: a finding is `CRITICAL`/`WARNING`/`SUGGESTION`
+(`contracts/findings.ts`), a risk is `high`/`medium`/`low` (AC-11). AC-88 requires
+each row to carry *a severity indicator* and never says which vocabulary a risk
+row's indicator speaks, and no other criterion rules on it either — so the
+implementation picked one: `riskReason()` in `BriefVerdictStrip/helpers.ts`
+hard-codes `severity: "CRITICAL"` for every qualifying risk, because only `high`
+risks reach the card at all (AC-84) and `SeverityBadge` accepts nothing else. The
+visible consequence is that a pull request whose only blocking reason is a merge
+risk opens a card showing the red `CRITICAL` badge — a word the brief never used
+and a scale it does not share. This was known at close-out and accepted rather
+than fixed, on the grounds that inventing a second badge vocabulary inside a hover
+card is a design decision no frame covers and no criterion asked for, and that
+rendering the risk's own word instead needs a primitive that does not exist today.
+It is recorded here rather than left silent because the surface reads as clean and
+is not: the two scales are conflated on that one row, which is exactly what AC-9
+and the *a reviewer can tell a risk level from a quality score at a glance* goal
+forbid everywhere else in this spec. Revisit by adding a criterion that states
+what a risk row's indicator shows, so the ambiguity is closed by a decision rather
+than by whichever badge the primitive happened to accept.
 
 **The `brief` i18n namespace is smaller than it looks.**
 `client/messages/en/brief.json` today carries `block.risks`, `block.intent`,
