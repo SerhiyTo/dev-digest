@@ -11,8 +11,8 @@ import { isConfigChange } from './helpers.js';
  * agent side: link/reorder/list for an agent). Workspace-scoped throughout.
  */
 
-import type { AgentRow, AgentVersionRow } from '../../db/rows.js';
-export type { AgentRow, AgentVersionRow };
+import type { AgentRow, AgentVersionRow, LinkedSkillRow } from '../../db/rows.js';
+export type { AgentRow, AgentVersionRow, LinkedSkillRow };
 
 export interface InsertAgent {
   workspaceId: string;
@@ -40,12 +40,6 @@ export interface UpdateAgent {
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
   enabled?: boolean;
-}
-
-/** A skill linked to an agent (with its order), joined from agent_skills. */
-export interface LinkedSkillRow {
-  skill: typeof t.skills.$inferSelect;
-  order: number;
 }
 
 export class AgentsRepository {

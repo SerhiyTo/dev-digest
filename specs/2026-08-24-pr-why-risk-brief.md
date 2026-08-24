@@ -15,13 +15,11 @@ and unit-tested at `domain.ts:266-267`, but its stated observation cannot be
 made: no seeded PR contains `package-lock.json`). Two observations are also
 unmakeable as written: **AC-29**'s input-summary counts have no column on
 `pr_brief_generations`, and **AC-80**'s footer is asserted only through the
-short sha in `e2e/specs/10-pr-brief.flow.json:13`, never in a component test.
-That e2e flow also omits two assertions on purpose, both recorded in its own
-`description`: the merge-risk band's word is unassertable because seeded PR #482
-carries a completed review, so `BriefVerdictStrip` renders `VerdictBanner`
-instead and the band is invisible on any reviewed PR; and AC-27's count badge is
-substituted by a review-focus row's `reason` text, because `wait --text` times
-out against a label rendered with `textTransform: uppercase`.
+short sha in `e2e/specs/10-pr-brief.flow.json:15`, never in a component test.
+That e2e flow also omits one assertion on purpose, recorded in its own
+`description`: AC-27's count badge is substituted by a review-focus row's
+`reason` text, because `wait --text` times out against a label rendered with
+`textTransform: uppercase`.
 Supersedes: none
 Amended: 2026-08-24 — **the design frames were produced and inspected for the
 first time**, and a defect was reported against the shipped strip: on a pull
