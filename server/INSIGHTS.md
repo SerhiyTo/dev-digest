@@ -8,6 +8,66 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Works
 <!-- Approaches, patterns, and solutions that have proven effective here -->
+- 2026-08-24: `groundFocusRows` (AC-24) needs a real `UnifiedDiff`, but
+  `BriefService` has no `GitClient` port and T6 gave it none — adding one would
+  have been a second unauthorized port edit. `FileSource.getChangedFiles`
+  already returns each file's stored `patch`, and `parseUnifiedDiff`
+  (`src/adapters/git/diff-parser.ts`) is a PURE string parser (no I/O, same
+  function `modules/reviews/diff-loader.ts`'s `diffFromPrFiles` already uses)
+  — reconstructing a synthetic diff text (`diff --git a/p b/p` / `--- a/p` /
+  `+++ b/p` / patch) and parsing it with that function needs zero new ports and
+  no depcruise rule forbids `service.ts` importing `src/adapters/git/`
+  (`drizzle-only-in-ring-3` only catches Drizzle/db-schema imports,
+  `ring-2-service-not-to-framework` only catches Fastify) (evidence:
+  server/src/modules/brief/service.ts `diffTextFromChangedFiles`;
+  server/src/modules/reviews/diff-loader.ts `diffFromPrFiles`)
+- 2026-08-24: AC-48's "reap a stuck `running` row on the request path, not
+  only at boot" is one `db.transaction`: an `UPDATE ... WHERE status='running'
+  AND started_at < now-STUCK_GENERATION_MS` (scoped to the one `prId` being
+  claimed) immediately followed by the existing
+  `INSERT ... ON CONFLICT DO UPDATE ... setWhere: ne(status, 'running')`
+  upsert `onboarding/repository.ts` already uses for a plain claim. No extra
+  locking needed — the reap only flips a genuinely stale row, and the
+  conflict's `setWhere` only succeeds when the row is no longer `running`, so
+  two concurrent callers against the same PR always resolve to exactly one
+  `true` (evidence: server/src/modules/brief/repository.ts `beginGeneration`)
+- 2026-08-24: to honor "never write a risk value into `reviews.score`" (AC-9)
+  and "brief cost never touches `agent_runs.cost_usd`" (AC-50) as a READ-side
+  boundary too, `BriefReviewsRead.latest.score`/`findingsCount`/`blockers` are
+  sourced from `agent_runs` (joined via `reviews.run_id = agent_runs.id`), not
+  from the `reviews.score` column that also exists — `reviews.score` is never
+  selected anywhere in `brief/repository.ts`, and `agent_runs.cost_usd` is
+  never selected either. Keeps the two money/score surfaces (review's own vs.
+  the brief's own) provably disjoint at the query level, not just by
+  convention (evidence: server/src/modules/brief/repository.ts `readReviews`;
+  server/src/db/schema/runs.ts `agentRuns.score`/`findingsCount`/`blockers`)
+- 2026-08-24: an LLM structured-output Zod schema (`GeneratedBrief` in
+  `modules/brief/domain.ts`) must NOT carry the same `.max()` string/array caps
+  the persisted contract enforces, when `maxRetries` for that call is 0. The
+  spec wants "40 risks capped to 12" and "30 refs capped to 5" to be corrected
+  by domain logic AFTER a successful parse, not turned into a parse failure —
+  a `.max(12)` on `risks` would reject a valid over-generating completion with
+  zero retries budgeted to recover. Keep the model-output schema permissive
+  (plain `z.string()`, uncapped arrays) and apply every cap
+  (`capRisks`/`capFocusRows`/`truncateStrings`) as a pure post-parse step
+  instead (evidence: server/src/modules/brief/domain.ts `GeneratedBrief`;
+  server/src/modules/brief/constants.ts `BRIEF_MAX_RETRIES = 0`)
+- 2026-08-24: `ring-1-domain-stays-pure` (dependency-cruiser) permits
+  `domain.ts`/`ports.ts` to import `^src/vendor/shared` and nothing else
+  external — NOT `@devdigest/reviewer-core`, even though the onion-architecture
+  skill's own ring table lists `reviewer-core/src/` as ring 0 alongside
+  `vendor/shared/`. The ruleset's `to.pathNot` for that rule only whitelists
+  `^src/vendor/shared`, `(domain|ports|constants)\.ts$` and `node_modules/zod`
+  — reviewer-core resolves to a sibling package path outside all three, so
+  reusing its `buildLineIndex`/`groundFindings` from a slice's `domain.ts`
+  would be a new `error`. Duplicate the small pure helper instead (here: a
+  local `buildLineIndex`/`rangeIntersects` pair for AC-24's hunk-intersection
+  check, deliberately mirroring `reviewer-core/src/grounding.ts` rather than
+  importing it) — same tradeoff already recorded below for
+  `sanitizePathLabel` between two *server* modules (evidence:
+  .claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs
+  `ring-1-domain-stays-pure`; server/src/modules/brief/domain.ts
+  `buildLineIndex`; reviewer-core/src/grounding.ts `buildLineIndex`)
 - 2026-08-23: a byte ceiling on a document read must bound the READ, not reject
   the file. `FsCloneDocs.read()` answered `{ok:false, reason:'too_large'}` above
   `MAX_DOC_BYTES` and the service turned that into a `skipped` entry, so the one
@@ -68,6 +128,19 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-08-24: a bare `config: { rateLimit: { max, timeWindow } }` with no
+  `keyGenerator` is ONE global bucket shared by every caller, not a
+  per-caller limit — `intent/routes.ts:76`'s `POST /pulls/:id/intent` still
+  ships this way, so its "5 per minute" is actually 5 total across every
+  workspace, not 5 per workspace. `brief/routes.ts`'s `POST
+  /pulls/:id/brief/generate` (AC-54, "5 per workspace per minute") instead
+  adds `keyGenerator: (req) => workspaceRateLimitKey(container, req)`, which
+  resolves the workspace and returns `` `brief-generate:${workspaceId}` `` —
+  following `onboarding/routes.ts`'s pattern, not `intent/routes.ts`'s. Do NOT
+  copy `intent/routes.ts` as the rate-limit template for a route that needs a
+  per-workspace (or per-repo) bucket (evidence:
+  server/src/modules/intent/routes.ts:71-76;
+  server/src/modules/brief/routes.ts:11-17,54-60)
 - 2026-08-23: adding a field to a response DTO breaks `toEqual` assertions the
   unit lane cannot see. `truncated` on `ProjectDocBody` turned
   `context.it.test.ts:208`'s `expect(ok.json()).toEqual({ path, content })` red
@@ -115,6 +188,27 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-24: to reach a sibling slice's Container-held service from a NEW
+  slice under `no-cross-slice-imports` (depcruise `severity: 'error'` with
+  `tsPreCompilationDeps: true`, so even `import type` fails), declare the port
+  structurally in the new slice's OWN `ports.ts` and satisfy it from a getter
+  on `Container` built in `platform/container.ts` — the composition root,
+  where `platform-not-to-modules` is only `warn`. `brief/ports.ts`'s
+  `BlastSource` and `FileRoleSource` are satisfied by `Container.get
+  blastSource()` (wraps `BlastService({ store: new BlastRepository(this.db),
+  engine: this.repoIntel })`) and `Container.get briefFileRoles()` (a private
+  `SmartDiffFileRoleSource` wrapping `BriefRepository` +
+  `classifyPath` from `modules/smart-diff/classify.ts`) — `brief/routes.ts`
+  never imports `modules/blast/` or `modules/smart-diff/` directly, it only
+  touches `container.blastSource`/`container.briefFileRoles`. Same trade as
+  the 2026-08-16 `BlastEngine` entry below, confirmed with a second,
+  independent pair of instances: wiring these two getters moved the depcruise
+  baseline from 7 errors/41 warnings to 7 errors/46 warnings — five new
+  `platform-not-to-modules` warnings, zero new errors (evidence:
+  server/src/platform/container.ts `get blastSource()`/`get briefFileRoles()`;
+  server/src/modules/brief/routes.ts:32-33; `cd server && npx depcruise
+  --config .dependency-cruiser.cjs src` → "53 dependency violations (7
+  errors, 46 warnings)")
 - 2026-08-24: `SimpleGitClient.readFile` (the shared `GitClient.readFile`, used
   by `onboarding/facts.ts`'s `readPackageScripts`, `conventions/`, `intent/`
   and the `files` module) had NO filesystem-level containment check — only
@@ -620,6 +714,18 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-24: `smart-diff/classify.ts`'s `classifyPath` treats every seeded PR
+  #482 file (`src/middleware/ratelimit.ts`, `src/api/public/webhooks.ts`,
+  `src/config.ts`, `src/api/users.ts`) as `core`, not `wiring` — despite the
+  filename, `src/config.ts` only matches `WIRING_SUFFIXES` on `.config.ts`
+  (dot-config, e.g. `next.config.ts`), not a bare `config.ts`, and it isn't in
+  `WIRING_FILENAMES` either. Any future seed or test that needs a `wiring`- or
+  `boilerplate`-classified file among this demo PR's changed files needs a new
+  path (e.g. one ending in `.config.ts` or under a `WIRING_SEGMENTS` directory)
+  — none of the four existing ones will do (evidence:
+  server/src/modules/smart-diff/classify.ts `classifyPath`,
+  `WIRING_SUFFIXES`/`WIRING_FILENAMES`; server/src/db/seed.ts pr_files values
+  for PR #482)
 - 2026-08-23: `@fastify/rate-limit`'s `config.rateLimit.keyGenerator` is typed
   `(req: FastifyRequest) => string | number | Promise<...>` — the PLAIN,
   unparameterized `FastifyRequest`
@@ -729,6 +835,66 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 - 2026-07-29: Claude 5-family models (claude-sonnet-5, claude-opus-5, …) reject `temperature` with 400 "temperature is deprecated for this model" — ALWAYS route Anthropic tuning params through `anthropicTuningParams()`, which omits temperature when the major version ≥ 5; mirrors the existing `tuningParams()` pattern for GPT-5/o-series in openai.ts (evidence: server/src/adapters/llm/anthropic.ts anthropicTuningParams; test server/test/adapters.test.ts "anthropic tuning params")
 
 ## Recurring Errors & Fixes
+- 2026-08-24: an implementation plan's own `## Acceptance-criteria coverage`
+  table is not proof — `docs/plans/2026-08-24-pr-why-risk-brief-blocking-reasons.md`
+  listed AC-93 (a null-gate run is read as `critical`) as "Proven by
+  `server/test/contracts.test.ts`, `helpers.test.ts`", and both files are real
+  and both pass, but neither one exercises the thing AC-93 is actually about:
+  `run-executor.ts`'s done-path `completeAgentRun` call denormalizing
+  `agent.ciFailOn` onto the run, `run.repo.ts`'s `listRunsForPull` mapping
+  `ci_fail_on` into the `RunSummary` DTO, and the failure/cancel call sites
+  leaving it null. `contracts.test.ts` only proves the Zod shape parses;
+  `helpers.test.ts` only proves a client-side pure function treats a
+  already-null gate as `critical`. Zero test in the repo drove a real
+  `POST /pulls/:id/review` → `GET /pulls/:id/runs` round trip and checked
+  `ci_fail_on` on the response before this session. A "Proven by" cell naming
+  a file is not evidence that the file's assertions match the criterion's
+  `Observed by:` line — grep the named file for the actual field name before
+  trusting the table (evidence: server/test/reviews.it.test.ts "denormalizes
+  the agent gate onto the run at completion, frozen against a later agent
+  edit, written only on the done path (AC-93)"; the two files the table named
+  contained no assertion on `agent_runs.ci_fail_on` or `RunSummary.ci_fail_on`
+  before this session)
+- 2026-08-24: a seeded `file_summaries` entry is only a faithful fixture if its
+  `path` classifies as `core`/`wiring` under `modules/smart-diff/classify.ts` —
+  `selectFileSummaries` (`brief/domain.ts:261-269`) drops `boilerplate` paths
+  before a real generation ever stores them (AC-61), so a seed that stores one
+  anyway produces a document the pipeline could never have produced, and
+  smart-diff serves it regardless because `SmartDiffService.get` merges
+  `file_summaries` by path with no role filter of its own. A prior task's
+  handoff asserted "both seeded summary files are `core`" without checking —
+  `src/api/public/webhooks.ts` is `boilerplate` because `public` is a
+  `BOILERPLATE_SEGMENT` (any path segment, not just a suffix). NEVER assume a
+  seeded path's classification from its extension or name — call
+  `classifyPath` (or read `constants.ts`'s segment/filename/suffix lists)
+  against the exact literal path before trusting it as a `core`/`wiring`
+  fixture (evidence: server/src/modules/smart-diff/constants.ts:35-59
+  `BOILERPLATE_SEGMENTS` incl. `'public'`; server/src/modules/brief/domain.ts:261-269
+  `selectFileSummaries`; server/src/modules/smart-diff/service.ts:28-33 merge
+  has no role check)
+- 2026-08-24: `tsconfig.json`'s `include: ["src/**/*.ts"]` means `pnpm typecheck`
+  never type-checks anything under `test/`. A port interface can grow a new
+  required method and every existing hand-rolled fake `Store` object literal in
+  `test/*.test.ts` silently drifts out of structural compliance — vitest still
+  passes because esbuild strips types without checking them, so nothing red
+  ever shows up. Confirmed for `SmartDiffStore`: adding `headSha` to
+  `SmartDiffPullSummary` (T2/T11) already made `test/smart-diff-service.test.ts`'s
+  `store()` fake (`{ id: 'pr-1' }`, no `headSha`) type-unsound, invisible to
+  every command in the per-task `Verify:` table. Also: when an object literal
+  has both a wholly-missing required property and a nested return-type mismatch
+  on a property that IS present, `tsc` reports only the first structural
+  problem it finds and stops — it does not enumerate every defect in one pass.
+  Fixing the reported one can reveal a second, previously-hidden error on the
+  next run (evidence: server/tsconfig.json:28 `"include"`;
+  server/test/smart-diff-service.test.ts:40; verified by temporarily requiring
+  `SmartDiffStore.getBriefSummaries` and compiling `test/` under a scratch
+  tsconfig — same single error either way, about `headSha`, not the method).
+  Decision this forced: `SmartDiffStore.getBriefSummaries?` stayed **optional**
+  in `server/src/modules/smart-diff/ports.ts:36` rather than becoming required,
+  specifically because that pre-existing test double (out of scope for the task
+  touching the port) would fail to structurally satisfy a required version, and
+  the service call site (`service.ts:25`) already reads it defensively with
+  `store.getBriefSummaries?.(prId)` plus a truthiness check before use.
 <!-- Errors seen more than once and their confirmed fixes -->
 - 2026-08-24: a repo-relative path guard that only checks STRUCTURE (no `..`,
   no absolute, normalises to itself) is not the same as checking which files may
@@ -747,6 +913,26 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-24: fixed the AC-61 seed violation — `db/seed.ts`'s `file_summaries`
+  entry for `src/api/public/webhooks.ts` (classifies `boilerplate`, per
+  `public` being a `BOILERPLATE_SEGMENT`) was replaced with one for
+  `src/config.ts` (classifies `core`), matching what `selectFileSummaries`
+  would actually store. `src/middleware/ratelimit.ts`'s entry was already
+  `core` and left unchanged. `pnpm test` (589) and
+  `test/brief.it.test.ts` (12) stayed green.
+- 2026-08-24: brief T17 — `modules/brief/service.ts` (`BriefService`:
+  `get`/`beginGeneration`/`runGeneration`/`reapRunning`, ports-not-Container,
+  fire-and-forget never `JobRunner`, exactly one `completeStructured` call at
+  `BRIEF_TIMEOUT_MS`/`BRIEF_MAX_RETRIES=0`), plus the one authorized additive
+  `ports.ts` edit closing the plan's confirmed `FileRoleSource` gap (shaped
+  like `BlastSource`: `get(workspaceId, prId): Promise<ReadonlyMap<string,
+  SmartDiffRole> | undefined>`, left unwired — T19's job). Corrupt stored-row
+  `PrBrief.parse` throw in `buildBriefResponse` is now caught in `get()` and
+  degrades to `{ brief: null, generation, stale }` rather than a 500, with
+  `stale` still computed from the un-parsed row's `head_sha` column. Added
+  `test/brief-service.test.ts` (7 hermetic cases, fake ports only). Unit lane
+  47 files / 586 passed, typecheck clean, depcruise unchanged at 7 errors / 41
+  warnings.
 - 2026-08-23: restored AC-33 at the byte ceiling — `FsCloneDocs.read()` returns a
   bounded prefix with `truncated` instead of refusing, `too_large` is gone from
   `CloneDocReadFailure` (nothing could produce it any more), and `ProjectDocBody`
@@ -860,6 +1046,27 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Open Questions
 <!-- Unresolved things that need more investigation -->
+- 2026-08-24: correction — the `orderFocusRows` entry below is RESOLVED and no
+  longer describes the tree. `ReviewSource.readFindings` is implemented
+  (`server/src/modules/brief/ports.ts`, `repository.ts`) and
+  `BriefService.runGeneration` builds a real lookup via
+  `buildFindingSeverityLookup` (`server/src/modules/brief/service.ts`), so focus
+  rows rank by the severity of the findings whose lines they overlap — worst of
+  several — rather than universally falling into the "no finding" tier. Closed
+  by the /sdd-review fix pass; proven at `server/test/brief-service.test.ts`.
+- 2026-08-24: `orderFocusRows`'s `findingSeverityForRow` callback (T6 left the
+  matching strategy to the implementer) has NO real data source at the
+  `BriefService` layer today — `ReviewSource.readReviews` returns only
+  `BriefLatestReview` (verdict/summary/score/model/counts), never individual
+  `findings` rows with file/line/severity, and adding that would need a new
+  method on `ReviewSource` (a `ports.ts` edit this task was not authorized to
+  make beyond `FileRoleSource`). `BriefService.runGeneration` therefore passes
+  `() => undefined`, so every review-focus row ranks as "no finding" and
+  ordering falls through to path-then-line — a real answer (matching a focus
+  row to a stored Finding the way `smart-diff/repository.ts`'s `getFindings`
+  does) needs `ReviewSource` widened with a per-PR findings read in a future
+  task (evidence: server/src/modules/brief/service.ts `runGeneration`
+  `orderFocusRows` call; server/src/modules/brief/ports.ts `BriefReviewsRead`)
 - 2026-08-24: the `.git/` denylist in `assertRepoRelativePath` closes the
   reachability of the leak, not its source. `withGitHubToken`
   (server/src/modules/repos/helpers.ts:29-35) still embeds the GitHub PAT in the

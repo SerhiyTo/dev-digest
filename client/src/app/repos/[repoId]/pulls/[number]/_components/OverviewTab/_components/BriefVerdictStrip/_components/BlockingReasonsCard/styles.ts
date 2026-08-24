@@ -1,0 +1,81 @@
+import type { CSSProperties } from "react";
+import type { CardPosition } from "./helpers";
+
+export const s = {
+  anchor: {
+    display: "inline-flex",
+    alignItems: "center",
+  } satisfies CSSProperties,
+  card: (pos: CardPosition, width: number): CSSProperties => ({
+    position: "fixed",
+    top: pos.top ?? undefined,
+    bottom: pos.bottom ?? undefined,
+    left: pos.left,
+    width,
+    maxHeight: pos.maxHeight,
+    overflowY: "auto",
+    zIndex: 60,
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-strong)",
+    background: "var(--bg-elevated)",
+    boxShadow: "0 12px 32px rgba(0,0,0,.45)",
+    cursor: "default",
+  }),
+  header: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    marginBottom: 12,
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: ".08em",
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  message: {
+    fontSize: 13,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  list: {
+    display: "flex",
+    flexDirection: "column",
+  } satisfies CSSProperties,
+  row: (first: boolean): CSSProperties => ({
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: 8,
+    marginTop: first ? 0 : 4,
+    marginBottom: 4,
+    borderRadius: 8,
+    borderTopWidth: first ? 0 : 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border)",
+  }),
+  rowHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+  } satisfies CSSProperties,
+  badgeWrap: {
+    display: "inline-flex",
+    flexShrink: 0,
+    paddingTop: 1,
+  } satisfies CSSProperties,
+  title: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13.5,
+    fontWeight: 600,
+    lineHeight: 1.45,
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  overflow: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+} as const;

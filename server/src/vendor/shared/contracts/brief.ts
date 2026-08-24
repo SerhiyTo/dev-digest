@@ -97,6 +97,26 @@ export const BlastRadius = z.object({
 });
 export type BlastRadius = z.infer<typeof BlastRadius>;
 
+// ---- Merge risk ----
+export const MergeRisk = z.enum(['low', 'medium', 'high']);
+export type MergeRisk = z.infer<typeof MergeRisk>;
+
+// ---- Review focus ----
+export const ReviewFocusRow = z.object({
+  file: z.string(),
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+  reason: z.string().max(140),
+});
+export type ReviewFocusRow = z.infer<typeof ReviewFocusRow>;
+
+// ---- Per-file summaries ----
+export const PrBriefFileSummary = z.object({
+  path: z.string(),
+  summary: z.string().max(200),
+});
+export type PrBriefFileSummary = z.infer<typeof PrBriefFileSummary>;
+
 // ---- PR History ----
 export const PrHistoryItem = z.object({
   pr_number: z.number().int(),
@@ -154,5 +174,17 @@ export const PrBrief = z.object({
   blast: BlastRadius,
   risks: Risks,
   history: PrHistory,
+  summary: z.string().max(400).optional(),
+  merge_risk: MergeRisk.optional(),
+  review_focus: z.array(ReviewFocusRow).default([]),
+  file_summaries: z.array(PrBriefFileSummary).default([]),
+  degraded_reason: z.string().nullable().optional(),
+  truncated: z.boolean().default(false),
+  head_sha: z.string().optional(),
+  model: z.string().optional(),
+  review_models: z.array(z.string()).default([]),
+  tokens_in: z.number().int().optional(),
+  tokens_out: z.number().int().optional(),
+  cost_usd: z.number().nullable().optional(),
 });
 export type PrBrief = z.infer<typeof PrBrief>;

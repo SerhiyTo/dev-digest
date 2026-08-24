@@ -39,6 +39,7 @@ export function FileCard({
   findings,
   onFindingsClick,
   onFindingOpen,
+  children,
 }: {
   file: PrFile;
   commenting?: DiffCommentApi;
@@ -46,6 +47,7 @@ export function FileCard({
   findings?: FindingRecord[];
   onFindingsClick?: () => void;
   onFindingOpen?: (findingId: string) => void;
+  children?: React.ReactNode;
 }) {
   const t = useTranslations("shell");
   const [open, setOpen] = React.useState(
@@ -159,6 +161,7 @@ export function FileCard({
             })
           )}
           {commenting && commenting.showComments && <OutdatedComments threads={outdated} />}
+          {children}
         </div>
       )}
     </div>

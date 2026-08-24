@@ -10,6 +10,7 @@ import {
   emptySeverityCounts,
   hasFindingAtSeverity,
   isEmptyCounts,
+  meetsGate,
   parseSeverity,
   runsMatchingSeverity,
 } from "./severity";
@@ -168,6 +169,40 @@ describe("runsMatchingSeverity", () => {
 
   it("returns nothing when no run has that severity", () => {
     expect(runsMatchingSeverity([review("clean", [])], "WARNING")).toEqual([]);
+  });
+});
+
+describe("meetsGate", () => {
+  it("'critical' passes only CRITICAL", () => {
+    expect(meetsGate("CRITICAL", "critical")).toBe(true);
+    expect(meetsGate("WARNING", "critical")).toBe(false);
+    expect(meetsGate("SUGGESTION", "critical")).toBe(false);
+  });
+
+  it("'warning' passes WARNING and CRITICAL", () => {
+    expect(meetsGate("CRITICAL", "warning")).toBe(true);
+    expect(meetsGate("WARNING", "warning")).toBe(true);
+    expect(meetsGate("SUGGESTION", "warning")).toBe(false);
+  });
+
+  it("'any' passes every known severity", () => {
+    expect(meetsGate("CRITICAL", "any")).toBe(true);
+    expect(meetsGate("WARNING", "any")).toBe(true);
+    expect(meetsGate("SUGGESTION", "any")).toBe(true);
+  });
+
+  it("'never' passes nothing, including CRITICAL", () => {
+    expect(meetsGate("CRITICAL", "never")).toBe(false);
+    expect(meetsGate("WARNING", "never")).toBe(false);
+    expect(meetsGate("SUGGESTION", "never")).toBe(false);
+  });
+
+  it("a null gate resolves exactly like 'critical' (AC-93) — tested deliberately", () => {
+    expect(meetsGate("CRITICAL", null)).toBe(true);
+    expect(meetsGate("WARNING", null)).toBe(false);
+    expect(meetsGate("SUGGESTION", null)).toBe(false);
+    expect(meetsGate("CRITICAL", undefined)).toBe(true);
+    expect(meetsGate("WARNING", undefined)).toBe(false);
   });
 });
 

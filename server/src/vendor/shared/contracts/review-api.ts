@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, SmartDiff, BlastRadius, PrHistoryItem } from './brief.js';
+import { Intent, SmartDiff, BlastRadius, PrHistoryItem, PrBrief } from './brief.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -101,3 +101,25 @@ export const BlastRadiusResponse = BlastRadius.extend({
   reason: z.string(),
 });
 export type BlastRadiusResponse = z.infer<typeof BlastRadiusResponse>;
+
+/** State of the most recent (or in-flight) generation attempt for a PR brief. */
+export const PrBriefGenerationState = z.object({
+  status: z.enum(['running', 'done', 'failed']),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  tokens_in: z.number().int().nullable(),
+  tokens_out: z.number().int().nullable(),
+  cost_usd: z.number().nullable(),
+  error: z.string().nullable(),
+  started_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+});
+export type PrBriefGenerationState = z.infer<typeof PrBriefGenerationState>;
+
+/** Response of `GET /pulls/:id/brief` and the `202` body of the generate route. */
+export const PrBriefResponse = z.object({
+  brief: PrBrief.nullable(),
+  generation: PrBriefGenerationState.nullable(),
+  stale: z.boolean(),
+});
+export type PrBriefResponse = z.infer<typeof PrBriefResponse>;
