@@ -231,4 +231,22 @@ describe("BriefVerdictStrip — without a review", () => {
     );
     expect(screen.getByText("500 in · 40 out")).toBeInTheDocument();
   });
+
+  it("shows the info control when a high risk exists but no review has run at all (AC-86)", () => {
+    renderWithIntl(
+      <BriefVerdictStrip summary="No review has run yet." mergeRisk="high" risks={[risk()]} />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Why this may not be safe to merge" }),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the info control when there are no blocking reasons and no review (AC-86)", () => {
+    renderWithIntl(
+      <BriefVerdictStrip summary="No review has run yet." mergeRisk="low" risks={[]} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Why this may not be safe to merge" }),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -52,6 +52,22 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-24: an `{a && b && (<JSX/>)}` gate built from two independent
+  conditions (`review && meta`, `blockingReasons.length > 0`) hides a reachable
+  branch when the two conditions are actually independent — `AC-86`'s `ⓘ`
+  control only needs `blockingReasons.length > 0`, but nesting it inside
+  `{review && meta && (…)}` made it silently unreachable on an unreviewed PR
+  with a `high` risk, because `composeBlockingReasons` unions `high` risks in
+  regardless of whether a review exists. Caught by `plan-verifier`, not by
+  typecheck or the original test suite — the original `BriefVerdictStrip.test.tsx`
+  never exercised "no review + a high risk" as its own case. Fix: hoist the
+  gated JSX into a variable (`infoControl`) computed from its own condition
+  only, then reference that variable from both the reviewed and unreviewed
+  branches — the two branches render identical JSX for the shared case, so
+  nothing about the reviewed layout moves (evidence:
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/BriefVerdictStrip.tsx`
+  `infoControl` variable and the `{!(review && meta) && infoControl && (...)}`
+  branch; `docs/plans/2026-08-24-pr-why-risk-brief-blocking-reasons.md` AC-86).
 - 2026-08-24: when a live-computed value (`composeBlockingReasons(...).length`)
   replaces a frozen one (`run.blockers`) as a component's source of truth, widen
   the prop to carry the raw domain objects the computation needs (the full
