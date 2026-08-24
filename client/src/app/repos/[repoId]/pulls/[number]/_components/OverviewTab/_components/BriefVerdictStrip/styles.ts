@@ -43,6 +43,10 @@ export const s = {
   } satisfies CSSProperties,
   label: (color: string): CSSProperties => ({ fontSize: 18, fontWeight: 700, color }),
   infoWrap: { display: "inline-flex" } satisfies CSSProperties,
+  infoRow: {
+    display: "flex",
+    marginTop: 10,
+  } satisfies CSSProperties,
   disagreement: {
     fontSize: 13,
     lineHeight: 1.55,

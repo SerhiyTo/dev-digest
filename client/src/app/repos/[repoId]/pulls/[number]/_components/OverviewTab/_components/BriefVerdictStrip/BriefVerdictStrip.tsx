@@ -82,6 +82,15 @@ export function BriefVerdictStrip({
     : null;
   const score = review?.score ?? null;
 
+  const infoControl =
+    blockingReasons.length > 0 ? (
+      <span style={s.infoWrap}>
+        <BlockingReasonsCard reasons={blockingReasons} repoFullName={repoFullName} headSha={headSha}>
+          <IconBtn icon="Info" label={t("blocking.control")} size={22} />
+        </BlockingReasonsCard>
+      </span>
+    ) : null;
+
   return (
     <div style={s.wrap}>
       <div style={s.iconBox(band.bg, band.c)}>
@@ -101,21 +110,13 @@ export function BriefVerdictStrip({
                 {tVerdict("verdict.findingsCount", { count: review.findingsCount })}
                 {liveBlockerCount > 0 ? tVerdict("verdict.blockers", { count: liveBlockerCount }) : ""}
               </Badge>
-              {blockingReasons.length > 0 && (
-                <span style={s.infoWrap}>
-                  <BlockingReasonsCard
-                    reasons={blockingReasons}
-                    repoFullName={repoFullName}
-                    headSha={headSha}
-                  >
-                    <IconBtn icon="Info" label={t("blocking.control")} size={22} />
-                  </BlockingReasonsCard>
-                </span>
-              )}
+              {infoControl}
             </div>
             {review.summary && <p style={s.summary}>{review.summary}</p>}
           </div>
         )}
+
+        {!(review && meta) && infoControl && <div style={s.infoRow}>{infoControl}</div>}
 
         {review && meta && disagree && (
           <p style={s.disagreement}>

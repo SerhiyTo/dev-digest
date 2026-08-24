@@ -298,7 +298,7 @@ because a task spans one module, not because they are two commits.
   `file_refs[0]` and asserts the title and the reference are not siblings on one
   flex line (assert on the rendered structure, not on a pixel width), and the
   existing expand/collapse and keyboard cases still pass unchanged.
-- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/RiskList/RiskList.tsx" --reporter=dot`
+- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/RiskList/RiskList.tsx" --reporter=dot`
 - Depends on: —
 
 ### T5 — AC-97: intent and blast-radius cards at equal width · module: client · wave: 1
@@ -314,7 +314,7 @@ because a task spans one module, not because they are two commits.
   wave 4 and the two edits must not collide in review.
 - Done when: a `BriefPanel.test.tsx` case asserts the grid's two columns are
   declared equal.
-- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/BriefPanel.tsx" --reporter=dot`
+- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/BriefPanel.tsx" --reporter=dot`
 - Depends on: —
 
 ### T6 — Denormalize the run's gate policy onto `agent_runs` at completion · module: server · wave: 2
@@ -450,7 +450,7 @@ because a task spans one module, not because they are two commits.
   of a finding's `rationale` or a risk's `explanation`, the anchor present with
   `repoFullName`+`headSha` and absent without them, and the overflow line at 9+
   reasons.
-- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "client/src/lib/severity.ts" "client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/helpers.ts" --reporter=dot`
+- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "src/lib/severity.ts" "src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/helpers.ts" --reporter=dot`
 - Depends on: T3, T7
 
 ### T9 — Rebuild `BriefVerdictStrip` to carry both judgements, and rehome the panel's controls · module: client · wave: 4
@@ -545,7 +545,7 @@ because a task spans one module, not because they are two commits.
   strip in **both** layouts (AC-96). `BriefPanel.test.tsx` asserts the section
   label (AC-94), the regenerate control rendering inside the strip while keeping
   its visible label (AC-95, AC-81), and no cost line left in the footer.
-- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/BriefVerdictStrip.tsx" "client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/BriefPanel.tsx" --reporter=dot`
+- Verify: `cd client && pnpm typecheck && pnpm exec vitest related --run "src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/BriefVerdictStrip.tsx" "src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefPanel/BriefPanel.tsx" --reporter=dot`
 - Depends on: T5, T8
 
 ### T10 — Restore the merge-risk assertion the e2e flow had to give up · module: e2e · wave: 5
