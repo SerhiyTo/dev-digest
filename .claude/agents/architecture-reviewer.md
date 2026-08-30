@@ -196,7 +196,7 @@ What no tool checks.
 |---|---|
 | Ring placement | New files against the ring table: 0 contracts and pure core, 1 domain, 2 use case, 3 infrastructure, 4 delivery and composition. The falsifiable test: **could rings 0–2 compile with `src/adapters`, `src/db` and `fastify` deleted?** |
 | Ring 1 does not exist yet | **No module currently has `domain.ts` or `ports.ts`.** Their absence is not a finding. Do not report a missing ring. |
-| Service dependencies | A service constructor takes its ports, never `Container`. A service importing `FastifyInstance`, `req`, `reply` or `drizzle-orm` is in the wrong ring. |
+| Service dependencies | A service constructor takes its ports, never `Container`, and never builds its own adapter — `new PgSomethingRepository()` inside a service bypasses the composition root as surely as importing `Container` does, even when the class it constructs lives in the same module and no import-based rule fires on it. A service importing `FastifyInstance`, `req`, `reply` or `drizzle-orm` is in the wrong ring. |
 | Queries | SQL belongs in `repository.ts`. Never a route, never a service. |
 | Row types | `$inferSelect` row types may not cross into a domain. |
 | Cross-module imports | No module may import another module. Sharing goes through `db/rows.ts`, a container repo, or ring 0. |
@@ -295,6 +295,20 @@ Anti-inflation, all of it binding:
   built-in import inside `reviewer-core/` trips no rule at all, even though it
   breaks the documented purity contract just as hard. That is a prose finding,
   not a mis-cited `core-stays-pure`.
+- **Two violations that sit on adjacent lines are still two findings, not one.**
+  A service importing a concrete repository from a sibling file in the **same**
+  module, then constructing it with `new PgSomethingRepository()` in the class
+  body, is two distinct things: the import (mechanical, if and only if it
+  actually crosses a module boundary — `no-cross-slice-imports` fires when
+  `from`/`to` capture *different* `$1`s; a same-slice import trips nothing) and
+  the construction (never mechanical — no rule inspects what a class body does
+  with `new`). Do not fold the construction into the import finding and cite
+  whichever rule sounds closest. Report the construction on its own `new` line,
+  as its own finding, with the rule stated in prose: "a service constructor
+  takes its ports; concrete adapters are built only in the composition root."
+  Borrowing `no-cross-slice-imports` for a same-slice import to cover both is
+  the anti-pattern the identifier rule above exists to stop — it looks
+  mechanical and is not.
 - Only what this diff introduces.
 - **Zero findings is a valid and good answer.** Say so, and say what you checked
   to be sure, rather than manufacturing something to justify the run.
