@@ -73,10 +73,12 @@ async function runFlow(file: string, flow: Flow): Promise<FlowResult> {
       if (step.assert?.stdoutIncludes && !stdoutContains(stdout, step.assert.stdoutIncludes)) {
         steps.push({ label, ok: false, detail: `stdout missing "${step.assert.stdoutIncludes}"` });
         console.log(`   ✗ ${label} — assertion failed`);
+        console.log(`     stdout: ${stdout.trim().slice(0, 2000)}`);
         break;
       }
       steps.push({ label, ok: true });
       console.log(`   ✓ ${label}`);
+      if (step.debug) console.log(`     ↳ ${stdout.trim().slice(0, 2000)}`);
     } catch (e) {
       const msg = (e as Error).message.split("\n")[0];
       steps.push({ label, ok: false, detail: msg });
@@ -94,6 +96,7 @@ async function runFlow(file: string, flow: Flow): Promise<FlowResult> {
 
 async function main(): Promise<void> {
   console.log(`DevDigest e2e — base=${BASE} bin=${BIN}`);
+  mkdirSync(RESULTS_DIR, { recursive: true });
   const flows = loadFlows();
   if (flows.length === 0) {
     console.error(`No specs found in ${SPECS_DIR}`);
