@@ -6,6 +6,10 @@
  *
  *   .claude/skills/<name>/**   OR  evals/skills/<name>/**   → run evals/skills/<name>  (content tier)
  *   .claude/agents/<name>.md   OR  evals/agents/<name>/**   → run evals/agents/<name>  (tool tier)
+ *
+ * A/B variants (`<name>-lite`) are measuring instruments, not gates: they reuse the strict
+ * variant's cases and thresholds precisely so `eval:repeat` + `eval:delta` can show which
+ * practice moved. They are reported on `ab_agents` and never enter the CI matrix.
  *   CLAUDE.md / .claude/CLAUDE.md / any agent / engine change → run the workflow tier
  *
  * A changed artifact with NO written evals is NOT a failure: it is reported on the `skipped_*`
@@ -53,10 +57,14 @@ const agentNames = touched(
   /^evals\/agents\/([^/]+)\//,
 );
 
+const isAbVariant = (name) => name.endsWith("-lite");
+
 const skills = skillNames.filter((n) => hasEvals("skills", n));
 const skippedSkills = skillNames.filter((n) => !hasEvals("skills", n));
-const agents = agentNames.filter((n) => hasEvals("agents", n));
-const skippedAgents = agentNames.filter((n) => !hasEvals("agents", n));
+const gatedAgents = agentNames.filter((n) => !isAbVariant(n));
+const agents = gatedAgents.filter((n) => hasEvals("agents", n));
+const skippedAgents = gatedAgents.filter((n) => !hasEvals("agents", n));
+const abAgents = agentNames.filter(isAbVariant);
 
 // The workflow tier measures the LIVE harness, so anything that changes it re-triggers it:
 // the root or .claude CLAUDE.md, any agent definition, the workflow cases, or the engine itself.
@@ -77,6 +85,7 @@ write("agents", JSON.stringify(agents));
 write("run_workflow", String(runWorkflow));
 write("skipped_skills", skippedSkills.join(" "));
 write("skipped_agents", skippedAgents.join(" "));
+write("ab_agents", abAgents.join(" "));
 
 // Human-readable summary in the step log.
 console.error("── eval change detection ──");
@@ -86,3 +95,4 @@ console.error(`agents → run  : ${agents.join(", ") || "(none)"}`);
 console.error(`workflow tier : ${runWorkflow ? "run" : "skip"}`);
 if (skippedSkills.length) console.error(`SKIP skills (no evals): ${skippedSkills.join(", ")}`);
 if (skippedAgents.length) console.error(`SKIP agents (no evals): ${skippedAgents.join(", ")}`);
+if (abAgents.length) console.error(`SKIP agents (A/B variant): ${abAgents.join(", ")}`);

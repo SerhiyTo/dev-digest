@@ -19,6 +19,7 @@ export function logTrace(label: string, result: Result): void {
   console.log(`\n  trace: ${label} — ${status} (${result.numTurns} turns)`);
   console.log(`    tools:     ${result.toolsUsed.join(", ") || "(none)"}`);
   console.log(`    subagents: ${result.subagents.join(", ") || "(none)"}`);
+  console.log(`    returned:  ${result.subagentsCompleted.join(", ") || "(none)"}`);
   console.log(`    skills:    ${result.skillsInvoked.join(", ") || "(none)"}`);
   console.log(`    reads:     ${result.filesRead.join(", ") || "(none)"}`);
   const m = result.metrics;

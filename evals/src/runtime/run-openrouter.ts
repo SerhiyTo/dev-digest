@@ -62,6 +62,7 @@ export async function runOpenRouter(prompt: string, opts: RunOptions = {}): Prom
     text,
     toolsUsed: [],
     subagents: [],
+    subagentsCompleted: [],
     skillsInvoked: [],
     filesRead: [],
     numTurns: 1,

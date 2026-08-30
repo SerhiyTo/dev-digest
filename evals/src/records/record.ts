@@ -76,6 +76,7 @@ export function record(label: string, data: RecordData): void {
     trace: {
       tools: result.toolsUsed,
       subagents: result.subagents,
+      subagents_completed: result.subagentsCompleted,
       skills: result.skillsInvoked,
       reads: result.filesRead,
     },

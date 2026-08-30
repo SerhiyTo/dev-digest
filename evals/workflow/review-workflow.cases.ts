@@ -10,7 +10,8 @@ import type { WorkflowCase } from "../src/index.js";
  *   - 2 × activation pair (positive + near-miss negative) = 4
  *
  * `trace` folds several assertions into ONE session (cheaper, coarser) and stops early once its
- * evidence is in — so a dispatch-bearing trace never waits out the nested subagent's full run.
+ * evidence is in. For a subagent expectation the evidence is the subagent RETURNING, not the Task
+ * call being emitted — so a dispatch-bearing trace does wait out the nested subagent.
  * Every trace below pairs at most ONE doc-read anchor with ONE dispatch/skill anchor — never two
  * doc reads in the same session, which earlier iterations found to be flaky (the model commits to
  * exploring one and skips the other; see the routing-only cases above for that history).
@@ -21,12 +22,13 @@ export const cases: WorkflowCase[] = [
     kind: "trace",
     // Endpoint must NOT already exist, or the model reviews the existing code inline instead of
     // planning-then-dispatching. GET /reviews/:id/export is genuinely absent from routes.ts.
-    name: "API-route task reads api-contracts AND pulls the architecture-reviewer",
+    name: "API-route task reads server/README.md AND pulls the architecture-reviewer",
     prompt:
-      "Я планую додати НОВИЙ, ще не реалізований ендпоінт GET /reviews/:id/export (віддає ревʼю як " +
-      "markdown). Спершу звірся з конвенціями API цього репо. Потім ОБОВʼЯЗКОВО запусти сабагента " +
+      "У модулі server/ я планую додати НОВИЙ, ще не реалізований ендпоінт GET /reviews/:id/export " +
+      "(віддає ревʼю як markdown). Спершу звірся з конвенціями роутів і валідації саме цього модуля " +
+      "— прочитай документ, де вони описані. Потім ОБОВʼЯЗКОВО запусти сабагента " +
       "architecture-reviewer, щоб він оцінив мій план на відповідність onion-шарам — не рецензуй сам.",
-    expectFilesRead: ["server/docs/api-contracts.md"],
+    expectFilesRead: ["server/README.md"],
     expectSubagents: ["architecture-reviewer"],
     maxTurns: 8,
   },
@@ -36,27 +38,29 @@ export const cases: WorkflowCase[] = [
     kind: "trace",
     // Tests the CLAUDE.md "Read When" routing, so the prompt must push toward CONSULTING the docs,
     // not exploring source. Earlier phrasing ("розберись, як усе влаштовано") sent the model straight
-    // into schema.ts / pipeline.run.ts and it never opened the routed doc. One anchor doc (pipeline.md)
-    // keeps this a deterministic routing check — asserting two docs in one session is inherently flaky.
-    name: "pipeline task follows CLAUDE.md routing to pipeline.md",
+    // into schema.ts / pipeline.run.ts and it never opened the routed doc. One anchor doc keeps this a
+    // deterministic routing check — asserting two docs in one session is inherently flaky. The anchor
+    // is reviewer-core/README.md: reviewer-core/CLAUDE.md attributes the pipeline diagram to it, and
+    // reviewer-core/docs/ is an empty placeholder (.gitkeep only).
+    name: "pipeline task follows CLAUDE.md routing to the reviewer-core pipeline diagram",
     prompt:
-      "Я збираюся змінити review pipeline. Перш ніж торкатися коду — звірся з настановами цього репо " +
-      "(CLAUDE.md) щодо того, яку документацію треба прочитати для змін у pipeline, і прочитай саме ці документи.",
-    expectFilesRead: ["reviewer-core/docs/pipeline.md"],
+      "Я збираюся змінити review pipeline у reviewer-core. Перш ніж торкатися коду — звірся з " +
+      "настановами цього модуля щодо того, де описаний сам пайплайн і його діаграма, і прочитай той документ.",
+    expectFilesRead: ["reviewer-core/README.md"],
     maxTurns: 8,
   },
 
-  // --- trace (1 session): CLAUDE.md "Hit unexpected behavior" routing -> gotchas ----------------
+  // --- trace (1 session): CLAUDE.md "Hit unexpected behavior" routing -> the module's INSIGHTS --
   // Was a contrast case, but the control run (empty tmpdir) could still reach the real repo by
-  // absolute path and read gotchas.md, making the negative flaky. As a single-session trace it
-  // reliably checks the same routing rule: in the real repo, the discovery prompt reads gotchas.md.
+  // absolute path and read the file, making the negative flaky. As a single-session trace it
+  // reliably checks the same routing rule: in the real repo, the discovery prompt reads INSIGHTS.md.
   {
     kind: "trace",
-    name: "CLAUDE.md routes a gotchas lookup to reviewer-core/insights",
+    name: "CLAUDE.md routes a gotchas lookup to reviewer-core/INSIGHTS.md",
     prompt:
       "У reviewer-core я стикнувся з несподіваною поведінкою — щось працює не так, як я очікував. " +
       "За настановами цього репо, де це вже могло бути задокументовано? Прочитай той файл.",
-    expectFilesRead: ["reviewer-core/insights/gotchas.md"],
+    expectFilesRead: ["reviewer-core/INSIGHTS.md"],
     maxTurns: 5,
   },
 
@@ -115,7 +119,7 @@ export const cases: WorkflowCase[] = [
   },
 
   // --- trace (1 session): e2e/CLAUDE.md routes to e2e/README.md's flow format BEFORE writing a
-  //     new flow — single anchor doc, same minimal shape as the gotchas.md case above.
+  //     new flow — single anchor doc, same minimal shape as the INSIGHTS.md case above.
   {
     kind: "trace",
     name: "e2e task follows e2e/CLAUDE.md routing to README.md before adding a flow",
@@ -136,7 +140,8 @@ export const cases: WorkflowCase[] = [
     name: "deprecation-policy activates on removing a vendor/shared contract field",
     prompt:
       "Хочу прибрати поле grounding з Zod-контракту ReviewRecord у " +
-      "server/src/vendor/shared — ним більше ніхто не користується, це старий артефакт.",
+      "server/src/vendor/shared/contracts/review-api.ts — ним більше ніхто не користується, " +
+      "це старий артефакт.",
     skill: "deprecation-policy",
     shouldActivate: true,
     maxTurns: 8,

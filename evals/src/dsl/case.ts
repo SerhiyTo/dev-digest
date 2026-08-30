@@ -68,6 +68,17 @@ export type WorkflowCase =
       maxTurns?: number;
     };
 
+/**
+ * Assertion message for a subagent expectation. Prints dispatched AND returned separately, because
+ * the interesting failure is the gap between them: dispatched-but-never-returned means the Task
+ * call was made and the subagent's own request failed (bad model route, no credit, upstream 400).
+ */
+function subagentDiag(result: Result): string {
+  const asked = result.subagents.join(", ") || "(none)";
+  const returned = result.subagentsCompleted.join(", ") || "(none)";
+  return `subagents dispatched: ${asked} | returned: ${returned}`;
+}
+
 /** Did a skill engage? Either an explicit Skill tool-call, or reading its SKILL.md. */
 export function activated(result: Result, skill: string): boolean {
   const bySkill = result.skillsInvoked.some((s) => s === skill || s.endsWith(`:${skill}`));
@@ -119,15 +130,16 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
   for (const c of cases) {
     test(c.name, async () => {
       if (c.kind === "dispatch") {
-        // Stop the moment the subagent is launched — no need to wait out its nested session.
+        // Stop the moment the subagent RETURNS. Stopping at the Task tool_use instead would pass
+        // on the intent to dispatch, and stay green even when the subagent itself never ran.
         const expect1 = c.expectSubagent;
         const result = await workflowTask(c.prompt, {
           maxTurns: c.maxTurns,
-          stopWhen: (p) => p.subagents.includes(expect1),
+          stopWhen: (p) => p.subagentsCompleted.includes(expect1),
         });
         logTrace(c.name, result);
         try {
-          expect(result.subagents, `subagents: ${result.subagents.join(", ")}`).toContain(c.expectSubagent);
+          expect(result.subagentsCompleted, subagentDiag(result)).toContain(c.expectSubagent);
         } finally {
           record(c.name, { result });
         }
@@ -144,8 +156,9 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
         }
       } else if (c.kind === "trace") {
         // One session, many asserts — every provided expectation is checked against the same trace.
-        // Stop as soon as ALL expectations are satisfied (e.g. doc read + subagent launched), so a
-        // dispatch-bearing trace doesn't pay for the nested subagent's full run.
+        // Stop as soon as ALL expectations are satisfied (e.g. doc read + subagent returned). A
+        // dispatch-bearing trace therefore does wait out the nested subagent: that wait IS the
+        // evidence, since a dispatch whose subagent 400s upstream never reaches subagentsCompleted.
         const subs = c.expectSubagents ?? [];
         const skls = c.expectSkills ?? [];
         const files = c.expectFilesRead ?? [];
@@ -155,14 +168,14 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
         const result = await workflowTask(c.prompt, {
           maxTurns: c.maxTurns,
           stopWhen: (p) =>
-            subs.every((s) => p.subagents.includes(s)) &&
+            subs.every((s) => p.subagentsCompleted.includes(s)) &&
             skls.every((s) => skillEngaged(p, s)) &&
             files.every((f) => p.filesRead.some((r) => r.includes(f))),
         });
         logTrace(c.name, result);
         try {
           for (const sub of c.expectSubagents ?? []) {
-            expect(result.subagents, `subagents: ${result.subagents.join(", ")}`).toContain(sub);
+            expect(result.subagentsCompleted, subagentDiag(result)).toContain(sub);
           }
           for (const skill of c.expectSkills ?? []) {
             expect(
