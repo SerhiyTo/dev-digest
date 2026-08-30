@@ -10,7 +10,7 @@
  * A/B variants (`<name>-lite`) are measuring instruments, not gates: they reuse the strict
  * variant's cases and thresholds precisely so `eval:repeat` + `eval:delta` can show which
  * practice moved. They are reported on `ab_agents` and never enter the CI matrix.
- *   CLAUDE.md / .claude/CLAUDE.md / any agent / engine change → run the workflow tier
+ *   any CLAUDE.md (root or module) / any agent / engine change → run the workflow tier
  *
  * A changed artifact with NO written evals is NOT a failure: it is reported on the `skipped_*`
  * outputs so the job can print a visible "SKIP <name> (no evals)" line instead of going red.
@@ -58,21 +58,26 @@ const agentNames = touched(
 );
 
 const isAbVariant = (name) => name.endsWith("-lite");
+// .claude/agents/README.md is the catalog CLAUDE.md points at, not a subagent definition.
+const isAgentDoc = (name) => name === "README";
+const agentDefinitionName = (f) => {
+  const name = f.match(/^\.claude\/agents\/([^/]+)\.md$/)?.[1];
+  return name !== undefined && !isAgentDoc(name) ? name : undefined;
+};
 
 const skills = skillNames.filter((n) => hasEvals("skills", n));
 const skippedSkills = skillNames.filter((n) => !hasEvals("skills", n));
-const gatedAgents = agentNames.filter((n) => !isAbVariant(n));
+const gatedAgents = agentNames.filter((n) => !isAbVariant(n) && !isAgentDoc(n));
 const agents = gatedAgents.filter((n) => hasEvals("agents", n));
 const skippedAgents = gatedAgents.filter((n) => !hasEvals("agents", n));
-const abAgents = agentNames.filter(isAbVariant);
+const abAgents = agentNames.filter((n) => isAbVariant(n) && !isAgentDoc(n));
 
 // The workflow tier measures the LIVE harness, so anything that changes it re-triggers it:
 // the root or .claude CLAUDE.md, any agent definition, the workflow cases, or the engine itself.
 const runWorkflow = changed.some(
   (f) =>
-    f === "CLAUDE.md" ||
-    f === ".claude/CLAUDE.md" ||
-    /^\.claude\/agents\/.+\.md$/.test(f) ||
+    /(^|\/)CLAUDE\.md$/.test(f) ||
+    agentDefinitionName(f) !== undefined ||
     /^evals\/workflow\//.test(f) ||
     /^evals\/src\//.test(f),
 );

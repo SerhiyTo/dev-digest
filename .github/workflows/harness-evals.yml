@@ -30,7 +30,7 @@ on:
       - '.claude/skills/**'
       - '.claude/agents/**'
       - 'CLAUDE.md'
-      - '.claude/CLAUDE.md'
+      - '**/CLAUDE.md'
       - 'evals/**'
 
 permissions:

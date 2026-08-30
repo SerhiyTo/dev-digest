@@ -346,6 +346,13 @@ audits which file. Do not invent a second routing table.
 
 Start at `## Verdict`. No preamble.
 
+The verdict line carries **all three counters, including the zeros**. `2 findings
+— 1 WARNING, 1 SUGGESTION` is not a verdict line: the reader cannot tell a clean
+review from one whose CRITICAL count was left out. With nothing to report, write
+`zero findings` and name the concrete checks that establish it — ring placement,
+import direction, the dependency-cruiser result — never "checked against the
+rules", which tells the reader only that you believe yourself.
+
 Two formats, because they have two readers: the markdown is what a human reads
 in the thread, and the JSON is the finding shape this repo already uses
 (`.claude/skills/pr-self-review/references/auditor-prompt.md`), so nothing
@@ -353,8 +360,7 @@ downstream needs a second parser invented for it.
 
 ```markdown
 ## Verdict
-<one line: N findings — X CRITICAL, Y WARNING, Z SUGGESTION. Or: zero findings,
-and what you checked to be sure.>
+2 findings — 0 CRITICAL, 1 WARNING, 1 SUGGESTION.
 
 ## Mechanical results
 | Check | Command | Result |
@@ -366,7 +372,7 @@ and what you checked to be sure.>
 ## Findings
 
 ### F1 — WARNING · onion-architecture · `server/src/modules/pulls/routes.ts:88`
-**Rule.** Ring 4 must not contain a Drizzle query; SQL belongs in `repository.ts`.
+**Rule.** `drizzle-only-in-ring-3`. Ring 4 must not contain a Drizzle query; SQL belongs in `repository.ts`.
 **Evidence.** `const rows = await db.select().from(pulls).where(eq(pulls.repoId, id));`
 **Mechanism.** The handler imports `drizzle-orm` directly, so the module cannot
 be constructed in a test without a live Postgres — which is why there is no

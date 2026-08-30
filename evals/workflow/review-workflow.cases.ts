@@ -73,7 +73,7 @@ export const cases: WorkflowCase[] = [
       "після зміни моделі ембедингів. Хочу це зафіксувати, щоб більше не наступати.",
     skill: "engineering-insights",
     shouldActivate: true,
-    maxTurns: 4,
+    maxTurns: 6,
   },
   {
     kind: "activation",

@@ -42,7 +42,10 @@ reviewer-core. Uses **pnpm**.
   already applied to existing DBs. Schema changes go: edit `src/db/schema.ts`
   → `pnpm db:generate` → new migration file → `pnpm db:migrate`.
 - `src/vendor/shared` is the canonical shared copy — changes here must be
-  mirrored to `client/src/vendor/shared`.
+  mirrored to `client/src/vendor/shared`. Mirroring is not the whole story:
+  removing, renaming or narrowing anything here breaks a consumer, so run the
+  `deprecation-policy` skill before deleting a field — this bullet is a pointer,
+  not the procedure.
 
 ## Docs
 
