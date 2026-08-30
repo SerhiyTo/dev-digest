@@ -23,13 +23,50 @@ export interface Verdict {
   score: number;
 }
 
+/**
+ * Yield every top-level {...} span, brace-balanced and string-aware. Slicing from the first "{"
+ * to the last "}" instead — as this did — concatenates two objects into `{...}{...}` the moment a
+ * judge emits a second one or trails prose containing a brace, and JSON.parse throws on the lot.
+ */
+function* jsonSpans(text: string): Generator<string> {
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}" && depth > 0) {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        yield text.slice(start, i + 1);
+        start = -1;
+      }
+    }
+  }
+}
+
 function parseVerdict(text: string): Verdict["results"] {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) throw new Error(`judge returned no JSON: ${text.slice(0, 200)}`);
-  const obj = JSON.parse(text.slice(start, end + 1));
-  if (!Array.isArray(obj.results)) throw new Error("judge JSON missing results[]");
-  return obj.results;
+  for (const span of jsonSpans(text)) {
+    let obj: unknown;
+    try {
+      obj = JSON.parse(span);
+    } catch {
+      continue;
+    }
+    const results = (obj as { results?: unknown }).results;
+    if (Array.isArray(results)) return results as Verdict["results"];
+  }
+  throw new Error(`judge returned no JSON object with results[]: ${text.slice(0, 200)}`);
 }
 
 /** Judge an output against a list of practices. Model defaults to the stronger judge family. */

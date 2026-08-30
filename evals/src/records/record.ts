@@ -31,6 +31,8 @@ export interface RecordData {
   verdict?: Verdict;
   grounded?: number;
   threshold?: number;
+  /** Why the judge produced no verdict. A case that expected one is never a pass without it. */
+  judgeError?: string;
   extra?: Record<string, unknown>;
 }
 
@@ -40,14 +42,16 @@ export interface RecordData {
  * from being silently empty.
  */
 export function record(label: string, data: RecordData): void {
-  const { result, verdict, grounded, threshold, extra } = data;
+  const { result, verdict, grounded, threshold, judgeError, extra } = data;
   const state = expect.getState();
   const nodeid = `${state.testPath ?? "?"} > ${state.currentTestName ?? label}`;
 
-  // outcome: grounding gate failure short-circuits to false; else the judge threshold; else
-  // "did the run itself succeed" (workflow tests have neither grounding nor a judge verdict).
-  const outcome =
-    grounded !== undefined && grounded < 1
+  // outcome: a judge that was expected but errored is a failure, never the `!isError` fallback —
+  // otherwise a crashed judge records the case as PASSED. Then the grounding gate, then the judge
+  // threshold, then "did the run itself succeed" (workflow tests have neither gate nor verdict).
+  const outcome = judgeError
+    ? false
+    : grounded !== undefined && grounded < 1
       ? false
       : verdict && threshold !== undefined
         ? verdict.score >= threshold
@@ -71,6 +75,7 @@ export function record(label: string, data: RecordData): void {
     threshold,
     practices: verdict?.results ?? [],
     grounded,
+    judge_error: judgeError,
     num_turns: result.numTurns,
     metrics: result.metrics,
     trace: {

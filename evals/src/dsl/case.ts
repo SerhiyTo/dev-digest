@@ -102,17 +102,23 @@ function runQualityCases(artifact: string, cases: QualityCase[], task: Task): vo
       // (e.g. baseline: grounding gate fails, judge skipped) still leaves a record.
       let grounded: number | undefined;
       let verdict: Verdict | undefined;
+      let judgeError: Error | undefined;
       try {
         // Cheap deterministic tier first — the grounding gate. When it fails the judge is skipped.
         if (c.grounding?.length) grounded = patternMatch(result.text, c.grounding);
         if (c.practices?.length && (grounded === undefined || grounded === 1)) {
-          verdict = await llmJudge(result.text, c.practices);
-          logVerdict(c.name, verdict);
+          try {
+            verdict = await llmJudge(result.text, c.practices);
+            logVerdict(c.name, verdict);
+          } catch (err) {
+            judgeError = err instanceof Error ? err : new Error(String(err));
+          }
         }
       } finally {
-        record(c.name, { result, verdict, grounded, threshold });
+        record(c.name, { result, verdict, grounded, threshold, judgeError: judgeError?.message });
       }
 
+      if (judgeError) throw judgeError;
       if (grounded !== undefined) {
         expect(grounded, `missing concrete evidence; output:\n${result.text}`).toBe(1);
       }

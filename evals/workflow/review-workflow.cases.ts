@@ -139,9 +139,10 @@ export const cases: WorkflowCase[] = [
     kind: "activation",
     name: "deprecation-policy activates on removing a vendor/shared contract field",
     prompt:
-      "Хочу прибрати поле grounding з Zod-контракту ReviewRecord у " +
-      "server/src/vendor/shared/contracts/review-api.ts — ним більше ніхто не користується, " +
-      "це старий артефакт.",
+      "Прибираю поле grounding зі спільного Zod-контракту ReviewRecord " +
+      "(server/src/vendor/shared/contracts/review-api.ts) — ним більше ніхто не користується. " +
+      "З'ясуй, що правила цього репо вимагають зробити ПЕРЕД видаленням поля зі спільного " +
+      "контракту, і відповідай, спираючись на них, а не на загальні міркування.",
     skill: "deprecation-policy",
     shouldActivate: true,
     maxTurns: 8,

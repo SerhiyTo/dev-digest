@@ -42,7 +42,7 @@ concurrency:
 
 env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-  EVAL_JUDGE_MODEL: google/gemini-2.5-flash
+  EVAL_JUDGE_MODEL: anthropic/claude-sonnet-5
 
 jobs:
   detect:
