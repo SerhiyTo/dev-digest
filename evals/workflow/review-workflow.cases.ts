@@ -22,13 +22,13 @@ export const cases: WorkflowCase[] = [
     kind: "trace",
     // Endpoint must NOT already exist, or the model reviews the existing code inline instead of
     // planning-then-dispatching. GET /reviews/:id/export is genuinely absent from routes.ts.
-    name: "API-route task reads server/README.md AND pulls the architecture-reviewer",
+    name: "API-route task reads server/CLAUDE.md AND pulls the architecture-reviewer",
     prompt:
       "У модулі server/ я планую додати НОВИЙ, ще не реалізований ендпоінт GET /reviews/:id/export " +
       "(віддає ревʼю як markdown). Спершу звірся з конвенціями роутів і валідації саме цього модуля " +
       "— прочитай документ, де вони описані. Потім ОБОВʼЯЗКОВО запусти сабагента " +
       "architecture-reviewer, щоб він оцінив мій план на відповідність onion-шарам — не рецензуй сам.",
-    expectFilesRead: ["server/README.md"],
+    expectFilesRead: ["server/CLAUDE.md"],
     expectSubagents: ["architecture-reviewer"],
     maxTurns: 8,
   },
