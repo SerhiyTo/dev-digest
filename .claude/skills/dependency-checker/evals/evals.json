@@ -1,0 +1,68 @@
+{
+  "skill_name": "dependency-checker",
+  "evals": [
+    {
+      "id": 0,
+      "name": "full-inventory-report",
+      "prompt": "Зроби повний аудит залежностей репозиторію: що на що зав'язано, скільки важить, і що чинити першим.",
+      "expected_output": "A report in the five fixed sections — Scope, Dependency graph, Size breakdown, Findings & Priorities, Summary — in that order. Scope names all six packages (server, client, reviewer-core, e2e, mcp, evals) with their package managers. The graph is a Mermaid flowchart of packages only, with labelled edges. Findings are grouped under P0/P1/P2/Info with empty tiers stated. Summary is 3-5 ordered actions.",
+      "files": [],
+      "assertions": [
+        "The report has all five sections with the exact headings Scope, Dependency graph, Size breakdown, Findings & Priorities, Summary, in that order",
+        "Scope lists all six package roots — server, client, reviewer-core, e2e, mcp and evals — not only the four modules named in root CLAUDE.md",
+        "Scope states the package manager per package and gets it right: pnpm for server, client and evals; npm for reviewer-core, e2e and mcp",
+        "The graph is a fenced mermaid flowchart whose nodes are the repo's own packages, with no npm package appearing as a node",
+        "Every finding is filed under exactly one of P0, P1, P2 or Info, and tiers with nothing in them are written out as empty rather than omitted",
+        "Every finding names a package plus a file path or a package.json field",
+        "The Summary is 3-5 concrete actions in priority order, not a restatement of the findings"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "unused-hunt-resists-false-positives",
+      "prompt": "Здається, у нас накопичилось багато зайвих пакетів. Які залежності можна безпечно видалити?",
+      "expected_output": "Names the three genuinely unused declarations — @fastify/autoload and testcontainers in server/package.json, tsx in reviewer-core/package.json — and explicitly rules out the look-alikes: typescript (invoked as tsc from scripts), tailwindcss/postcss (loaded by postcss.config.mjs), pino-pretty (a pino transport named by string in server/src/app.ts), @vscode/ripgrep (used for its binary), @types/* (never imported by design). Recommends removal; does not perform it.",
+      "files": [],
+      "assertions": [
+        "Identifies @fastify/autoload in server/package.json as declared under dependencies and imported nowhere",
+        "Identifies testcontainers in server/package.json as unused, and distinguishes it from @testcontainers/postgresql which is actually used",
+        "Does NOT claim typescript is unused — recognises it is invoked as the tsc binary from the typecheck script",
+        "Does NOT claim pino-pretty is unused — recognises server/src/app.ts names it as a pino transport target by string",
+        "Does NOT claim tailwindcss, postcss or @tailwindcss/postcss are unused — recognises postcss.config.mjs references them",
+        "Does NOT list @types/* packages as unused, since type packages are consumed by the compiler and never imported",
+        "Presents removal as a recommendation for the user to confirm and does not edit any package.json or run any install command"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "cross-package-links-are-not-workspaces",
+      "prompt": "Поясни, як наші пакети зав'язані один на одного. Малюй схему.",
+      "expected_output": "Describes tsconfig path aliases as the linking mechanism, never workspaces or workspace:* protocol. Names the real edges: server -> reviewer-core via @devdigest/reviewer-core, reviewer-core -> server and mcp -> server via @devdigest/shared, and the client's vendored mirror of server/src/vendor/shared which no tool reports. Flags reviewer-core/test/run.test.ts reaching into server/src/adapters/mocks.js as a boundary violation.",
+      "files": [],
+      "assertions": [
+        "States that this is not a workspace — six independent packages with six lockfiles, no root package.json, no hoisting",
+        "Never claims the packages are linked by pnpm workspaces, npm workspaces or the workspace:* protocol",
+        "Names tsconfig paths as the actual linking mechanism and cites at least one concrete alias such as @devdigest/shared or @devdigest/reviewer-core",
+        "Identifies that the canonical shared contracts live inside server/src/vendor/shared and that reviewer-core and mcp both reach into server for them",
+        "Mentions client/src/vendor/shared as a hand-maintained mirror rather than an import edge",
+        "Flags reviewer-core/test/run.test.ts importing server/src/adapters/mocks.js as a deep import across a package boundary, at P0 or otherwise explicitly called out",
+        "Produces a mermaid flowchart whose edges carry the mechanism as a label rather than bare arrows"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "installed-size-is-not-bundle-size",
+      "prompt": "У нас node_modules роздувся до півтора гігабайта. Що найважче і що з цим робити?",
+      "expected_output": "Reports installed sizes per package (client ~620 MB, evals ~332 MB, server ~250 MB) and the heaviest packages (next ~153 MB, mermaid ~75 MB, lucide-react ~36 MB, typescript 22.8 MB installed six times). Distinguishes disk cost from browser payload, notes that only client can produce the latter, and does not present a du number as a bundle number. Explains that duplicate installs are the price of having no workspace rather than a fixable hoisting problem.",
+      "files": [],
+      "assertions": [
+        "Reports installed size per package and identifies client as the heaviest",
+        "Explicitly distinguishes installed size on disk from what a user downloads in the browser, and does not present a du measurement as a bundle size",
+        "Notes that only client produces browser payload, so weight in server, evals, e2e or mcp costs CI and disk but nothing to a user",
+        "Identifies duplicate installs across packages — typescript installed once per package is the clearest case — and quantifies the total",
+        "Explains that without a workspace root there is nothing to hoist into, so deduplication is not available as a cheap fix",
+        "Does not claim a specific bundle-size improvement it has not measured"
+      ]
+    }
+  ]
+}

@@ -63,11 +63,18 @@ function main(): void {
   console.log(`A = ${labelA}  sha ${a.git_sha}${a.dirty ? "-dirty" : ""}  (${a.times} runs)`);
   console.log(`B = ${labelB}  sha ${b.git_sha}${b.dirty ? "-dirty" : ""}  (${b.times} runs)`);
 
-  const nodeids = [...new Set([...Object.keys(a.tests), ...Object.keys(b.tests)])].sort();
-  for (const id of nodeids) {
-    const ta = a.tests[id];
-    const tb = b.tests[id];
-    const shortId = id.split(" > ").slice(-1)[0];
+  // Join by case name, not the full nodeid: an A/B pair that lives in two different eval files
+  // under two different `describeAgent` names (e.g. architecture-reviewer vs
+  // architecture-reviewer-lite) shares the case name but never the full nodeid, so joining on
+  // the raw id would union-list every case as two unmatched rows instead of one comparison.
+  const shortIdOf = (id: string) => id.split(" > ").slice(-1)[0];
+  const aByShortId = new Map(Object.keys(a.tests).map((id) => [shortIdOf(id), a.tests[id]]));
+  const bByShortId = new Map(Object.keys(b.tests).map((id) => [shortIdOf(id), b.tests[id]]));
+
+  const shortIds = [...new Set([...aByShortId.keys(), ...bByShortId.keys()])].sort();
+  for (const shortId of shortIds) {
+    const ta = aByShortId.get(shortId);
+    const tb = bByShortId.get(shortId);
     rateRow("\n  ", shortId, ta?.pass, tb?.pass);
 
     const practiceTexts = [...new Set([...Object.keys(ta?.practices ?? {}), ...Object.keys(tb?.practices ?? {})])];

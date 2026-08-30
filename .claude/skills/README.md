@@ -21,6 +21,7 @@ Reusable AI skills that provide specialized knowledge and workflows. They live i
 | [deprecation-policy](deprecation-policy/SKILL.md) | Shared | Retiring anything on a shared boundary: the `@deprecated` marker, removal windows, per-surface mechanics |
 | [breaking-change](breaking-change/SKILL.md) | Shared | Detects a break in the diff, sequences expand → migrate → contract, owns DB migration pairs and the gate |
 | [pr-self-review](pr-self-review/SKILL.md) | Shared | Pre-PR gate: routes the open diff to the skills above, blocks merge on CRITICAL |
+| [dependency-checker](dependency-checker/SKILL.md) | Shared | Repo-wide dependency inventory: graph, sizes, version drift, unused/phantom packages, prioritised findings |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Shared | Read/append per-module INSIGHTS.md session learnings (append-only) |
 | [workflow-retrospective](workflow-retrospective/SKILL.md) | Shared | How the last multi-agent run performed: tokens, launch order, friction, duplicated work |

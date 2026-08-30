@@ -188,60 +188,33 @@ workflow cases:
 
 ### Wiring it into GitHub Actions (per-PR)
 
-The engine is CI-ready: bring the proxy up as a step, wait for it, run the tier, tear it down. Put
-the OpenRouter key in the repo's **Actions secrets** as `OPENROUTER_API_KEY` (Settings → Secrets and
-variables → Actions). Create `.github/workflows/<name>.yml` in your repo:
+The engine is CI-ready: bring the proxy up as a step, wait for it, run the tier, tear it down. This
+repo's actual wiring lives in `.github/workflows/harness-evals.yml` — read it as the worked example,
+not the sketch below. Shape:
 
-```yaml
-name: evals
-on:
-  pull_request:
-    paths: ['evals/**', '.claude/**', 'CLAUDE.md']   # only when the harness/artifacts change
+- A `detect` job diffs the PR against its base ref and feeds the changed files to
+  `evals/scripts/ci-detect.mjs`, which maps them onto exactly the skills/agents/workflow-tier that
+  need to run (and reports anything with no written evals as skipped, in the job summary — not a
+  failure).
+- `skill-evals` fans out one job per touched skill (matrix, from `detect`'s output) on
+  `EVAL_BACKEND=openrouter` with `EVAL_MODEL=deepseek/deepseek-chat` — content tier, no proxy needed,
+  DeepSeek is accurate and cheap here.
+- `agent-evals` and `workflow-evals` run on `EVAL_MODEL=google/gemini-2.5-flash` through the LiteLLM
+  proxy — the tool tiers need real subagent dispatch, which the benchmark above shows DeepSeek fails
+  at. `agent-evals` caps `max-parallel` to stay under OpenRouter's rate limit (see the caveats above).
+- Every eval job runs with `continue-on-error: true`: the suite is diagnostic, never a merge gate.
 
-permissions:
-  contents: read
-
-jobs:
-  workflow-evals:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: evals
-    env:
-      EVAL_BACKEND: openrouter
-      OPENROUTER_BASE_URL: http://localhost:4000
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}   # repo Actions secret
-      EVAL_MODEL: google/gemini-2.5-flash
-      EVAL_JUDGE_MODEL: google/gemini-2.5-flash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 10 }
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: evals/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-
-      # --- the engine ---
-      - run: docker compose -f proxy/docker-compose.yml up -d   # OPENROUTER_API_KEY from job env
-      - run: pnpm proxy:wait                                     # block until the proxy answers
-      - run: pnpm eval:workflow                                  # or eval:agents / eval:skills / eval
-      - if: failure()
-        run: docker compose -f proxy/docker-compose.yml logs --tail 100
-      - if: always()
-        run: docker compose -f proxy/docker-compose.yml down
-```
+Put the OpenRouter key in the repo's **Actions secrets** as `OPENROUTER_API_KEY` (Settings → Secrets
+and variables → Actions) — the workflow reads it once at the top level and every job inherits it.
 
 Notes:
 - ubuntu runners ship Docker + `docker compose`, so no extra setup is needed.
 - The proxy container reads `OPENROUTER_API_KEY` straight from the job `env` (which is fed by the
   secret) — you don't pass it to `docker compose` explicitly.
-- Because tool tiers cost real tokens, gate on `paths:` (only when the harness/artifacts change) and
-  keep the case count small. For a stricter gate, split into a required `eval:agents`/`eval:skills`
-  job and a non-blocking `eval:workflow` job (activation flakiness, above).
+- A matrix value that comes from a changed path (skill/agent name) must never be interpolated
+  straight into a `run:` step (`${{ matrix.skill }}` inside a shell string) — a fork PR could name a
+  directory to inject shell. Pass it through `env:` and reference the env var instead, as
+  `harness-evals.yml` does.
 
 ## Module layout — `src/` (the engine)
 
