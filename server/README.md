@@ -16,8 +16,11 @@ swapped for mocks in tests.
 - **Stack:** Fastify 5 (`@fastify/helmet`, `@fastify/rate-limit`, `@fastify/cors`,
   `fastify-sse-v2` for streaming run traces), Drizzle ORM, `postgres`, pgvector.
   Zod contracts from `src/vendor/shared` (`@devdigest/shared`) double as route
-  schemas via `fastify-type-provider-zod` — one definition drives request
-  validation **and** response serialization.
+  schemas via `fastify-type-provider-zod` — but **for requests only**: no route
+  declares `response:`, so an outgoing body is a hand-written DTO that no
+  compiler checks against the contract. A service that must satisfy one
+  `safeParse`s its own DTO and throws a 500 on failure (see
+  `modules/context/service.ts`).
 - **Run:** `pnpm dev` (`:3001`). **Migrate/seed:** `pnpm db:migrate`,
   `pnpm db:seed`. **Test:** `pnpm test` (see [Testing](#testing)).
 - **No keys required to boot:** `loadConfig` (`src/platform/config.ts`) marks
@@ -77,6 +80,9 @@ flowchart TB
   subgraph Intel["Repo intelligence"]
     repoIntel["repo-intel<br/>/repos/:id/index-state · /resync"]
   end
+  subgraph Context["Project context"]
+    context["context<br/>/repos/:id/context · /context/file · /context/resync · /context/estimate<br/>/agents/:id/context · /skills/:id/context"]
+  end
   subgraph Platform["Platform"]
     settings["settings<br/>/settings · /providers"]
     workspace["workspace<br/>/workspace"]
@@ -96,7 +102,7 @@ flowchart TB
 | `GITHUB_TOKEN` | —                                                         | optional; PAT with repo scope (`GITHUB_PAT` accepted as a fallback) |
 | `EMBEDDINGS_ENABLED` | `false`                                                   | memory/RAG embeddings (OpenAI); off → **zero** OpenAI calls |
 | `REPO_INTEL_ENABLED` | `true`                                                    | repo skeleton + callers in the prompt; `false` → ripgrep-only |
-| `DEVDIGEST_CLONE_DIR` | `./clones`                                                | imported-repo checkouts (git-ignored) |
+| `DEVDIGEST_CLONE_DIR` | `~/.devdigest/workspace`                                  | imported-repo checkouts; a relative value resolves against `process.cwd()` (`config.ts:66-68`). `repos.clone_path` — not this var — is what project-context discovery reads |
 | `LOG_LEVEL` | `info` (`silent` in test)                                 | pino level |
 | `NODE_ENV` | `development`                                             | `test` → silent logs + global rate-limit disabled |
 
@@ -106,7 +112,10 @@ through `SecretsProvider` (`~/.devdigest/secrets.json`, mode `0600`, with
 
 Migrations are **not** applied on boot — run `pnpm db:migrate` (pgvector is
 enabled by migration `0000`). `pnpm db:seed` is idempotent demo data
-(`acme/payments-api`, PR #482, the two built-in agents).
+(`acme/payments-api`, PR #482, the two built-in agents) and also writes a
+**fixture clone** of `acme/payments-api` under `cloneDir/acme/payments-api`
+holding four markdown documents, plus one completed run and its trace, so the
+Project Context page and the run-trace drawer have something to show.
 
 ## Review context (non-obvious)
 
@@ -131,6 +140,14 @@ What the reviewer actually sends to the model is assembled in
 - **Grounding is mandatory.** Every finding must cite a line that exists in the
   diff or it is dropped (`groundFindings`), and the score is recomputed from the
   surviving findings — the model's self-reported score is ignored.
+- **Project context is opt-in per agent, and read from the clone.** Documents a
+  user attached to the agent (or to one of its **enabled** skills) are read from
+  the working tree at `repos.clone_path`, which sits on the repository's default
+  branch — never the PR head — merged in attachment order, path-labelled,
+  truncated, and injected as the `## Project context` section. An agent with
+  nothing attached produces a byte-identical prompt to one from before the
+  feature existed. `specs_read` in the run trace lists exactly what was
+  injected. See `specs/2026-08-23-project-context.md`.
 
 ## Testing
 

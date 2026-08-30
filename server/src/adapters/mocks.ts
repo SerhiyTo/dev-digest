@@ -18,6 +18,9 @@ import type {
   CommitFilesPayload,
   IssueMeta,
   GitClient,
+  CloneDocRead,
+  CloneDocsSource,
+  CloneDocEntry,
   CloneOptions,
   UnifiedDiff,
   BlameLine,
@@ -292,6 +295,22 @@ export class MockGitClient implements GitClient {
   }
   async readFile(_repo: RepoRef, path: string): Promise<string> {
     return this.opts.files?.[path] ?? '';
+  }
+}
+
+// ---------- Mock CloneDocs ----------
+export class MockCloneDocs implements CloneDocsSource {
+  constructor(private docs: Record<string, string> = {}) {}
+
+  async list(_cloneRoot: string): Promise<CloneDocEntry[]> {
+    return Object.keys(this.docs)
+      .sort()
+      .map((path) => ({ path }));
+  }
+
+  async read(_cloneRoot: string, path: string): Promise<CloneDocRead> {
+    const text = this.docs[path];
+    return text === undefined ? { ok: false, reason: 'missing' } : { ok: true, text };
   }
 }
 

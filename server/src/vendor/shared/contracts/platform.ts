@@ -249,6 +249,11 @@ export const PrCommentInput = z.object({
 export type PrCommentInput = z.infer<typeof PrCommentInput>;
 
 // ---- Project Context ----
+/**
+ * @deprecated since 0.1.0 — use `ProjectDoc` from `contracts/context.ts`
+ * @removeAfter 0.3.0 2026-11-21
+ * @migration specs/2026-08-20-project-context.md
+ */
 export const SpecFile = z.object({
   path: z.string(),
   content: z.string().nullish(),

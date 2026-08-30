@@ -1,17 +1,82 @@
 {
   "title": "Onboarding Tour",
-  "sections": "Sections",
-  "sectionCount": "{count} sections",
+  "onThisPage": "On this page",
   "regenerate": "Regenerate",
   "regenerating": "Regenerating…",
   "unknownError": "Unknown error",
+  "open": "Open",
   "generate": {
     "title": "Generate onboarding tour",
-    "body": "DevDigest indexes the repo and specs, then writes a 5-section guided tour: overview, architecture, key modules, getting started, and conventions & gotchas.",
-    "cta": "Generate onboarding tour",
+    "body": "DevDigest indexes the repo and specs, then writes a five-section guided tour: architecture, critical paths, how to run locally, reading order, and first tasks.",
+    "cta": "Generate with {model}",
     "generating": "Generating…"
   },
   "loadError": {
     "title": "Couldn’t load the onboarding tour"
+  },
+  "sections": {
+    "architecture": {
+      "title": "Architecture",
+      "empty": "No architecture overview was generated."
+    },
+    "critical_paths": {
+      "title": "Critical paths",
+      "empty": "No critical paths were identified."
+    },
+    "run_locally": {
+      "title": "How to run locally",
+      "empty": "No run commands were identified."
+    },
+    "reading_path": {
+      "title": "Reading order",
+      "empty": "No reading order was identified."
+    },
+    "first_tasks": {
+      "title": "First tasks",
+      "empty": "No first tasks were identified."
+    }
+  },
+  "badges": {
+    "stale": "Stale",
+    "partial": "Partial"
+  },
+  "freshness": {
+    "withFiles": "Generated {time} ago from {count, plural, one {# indexed file} other {# indexed files}}",
+    "withoutFiles": "Generated {time} ago"
+  },
+  "header": {
+    "model": "Model: {model}",
+    "cost": "Cost: {cost}"
+  },
+  "failure": {
+    "title": "Tour generation failed",
+    "cost": "This attempt cost {cost}"
+  },
+  "regenerateConfirm": {
+    "title": "Regenerate the onboarding tour?",
+    "body": "This replaces the current tour using {model}. The current tour stays until the new one finishes.",
+    "confirm": "Regenerate",
+    "cancel": "Cancel"
+  },
+  "copy": {
+    "action": "Copy",
+    "copied": "Copied",
+    "failed": "Couldn’t copy. Select the text and copy it manually."
+  },
+  "share": {
+    "label": "Share link",
+    "copied": "Link copied",
+    "failed": "Couldn’t copy the link. Select and copy the URL manually."
+  },
+  "complexity": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High"
+  },
+  "fileView": {
+    "notFound": {
+      "title": "File not found",
+      "body": "This file no longer exists in the repository."
+    }
   }
 }

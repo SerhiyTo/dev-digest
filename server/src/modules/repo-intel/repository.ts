@@ -447,6 +447,20 @@ export class RepoIntelRepository {
       .where(and(eq(t.fileRank.repoId, repoId), inArray(t.fileRank.filePath, paths)));
   }
 
+  async getIndexedPaths(repoId: string): Promise<string[]> {
+    const [rankRows, symbolRows] = await Promise.all([
+      this.db
+        .selectDistinct({ path: t.fileRank.filePath })
+        .from(t.fileRank)
+        .where(eq(t.fileRank.repoId, repoId)),
+      this.db
+        .selectDistinct({ path: t.symbols.path })
+        .from(t.symbols)
+        .where(eq(t.symbols.repoId, repoId)),
+    ]);
+    return [...new Set([...rankRows.map((r) => r.path), ...symbolRows.map((r) => r.path)])];
+  }
+
   /** Top `limit` paths by rank DESC (caller filters tests/configs in JS). */
   async getRankedPaths(
     repoId: string,

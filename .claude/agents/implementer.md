@@ -3,8 +3,9 @@ name: implementer
 description: >-
   Executes an approved Development Plan across server/, client/, reviewer-core/
   and e2e/. Invokes the project skill named by each task before writing code,
-  makes the change, runs that module's own typecheck and tests, and reports what
-  it changed, what it ran and what it could not do. Stays inside the plan's file
+  makes the change, runs the task's unit-lane verify inside the loop and the
+  module's full suite once at the end, and reports what it changed, what it ran
+  and what it could not do. Stays inside the plan's file
   list. Does not commit, push, open pull requests, and does not perform
   architectural or security review — separate agents own those.
 model: sonnet
@@ -58,7 +59,8 @@ One task at a time, in `Depends on` order. Create a todo per task.
    "if it looks tricky". You do not inherit skills the caller already invoked;
    if you did not call it in this run, you do not have it.
 3. Make the change, only in the listed files.
-4. Run that module's verify command (table below) and read the output.
+4. Run the task's own `Verify:` command — the unit lane, not the module's full
+   suite — and read the output.
 5. Record: what changed, which skills applied, what the command actually said.
 
 If a task fails verification, fix it within that task's files. If the fix needs
@@ -136,14 +138,41 @@ why the preloaded set is as large as it is.
 
 ## Verification
 
-Run this for every module you changed, after its last task:
+Two levels, and confusing them is what makes a run take an hour.
 
-| Module | Command |
+**Per task** — the task's own `Verify:`. It is the unit lane, and it is what you
+run inside the loop:
+
+| Module | Per-task command |
+|---|---|
+| `server/` | `cd server && pnpm typecheck && pnpm exec vitest run --exclude '**/*.it.test.ts' --reporter=dot` |
+| `client/` | `cd client && pnpm typecheck && pnpm exec vitest run --reporter=dot` |
+| `reviewer-core/` | `cd reviewer-core && npm run typecheck && npm test -- --reporter=dot` |
+| `e2e/` | `cd e2e && npm run typecheck` |
+
+**Never run `server/`'s full suite inside the per-task loop.** Thirteen
+`*.it.test.ts` files each start their own `pgvector/pgvector:pg16` testcontainer
+and re-run every migration, so one `pnpm test` is fourteen container startups.
+Doing that after each of six tasks costs minutes per task and buys nothing the
+unit lane did not already tell you.
+
+If the plan gives a narrower `Verify:` than the table — typically
+`pnpm exec vitest related --run <the task's source files> --reporter=dot` — run
+what the plan says. The plan's command wins; the table is the fallback when a
+task carries none.
+
+**Once per module, after its last task** — the full suite, including the
+integration lane:
+
+| Module | Final command |
 |---|---|
 | `server/` | `cd server && pnpm typecheck && pnpm test` |
 | `client/` | `cd client && pnpm typecheck && pnpm test` |
 | `reviewer-core/` | `cd reviewer-core && npm run typecheck && npm test` |
 | `e2e/` | `cd e2e && npm run typecheck` |
+
+The integration lane needs Docker. If `dockerAvailable()` is false the suite
+skips rather than fails — report the skip as a skip, never as a pass.
 
 `cd e2e && npm test` runs **only when the plan explicitly asks for it** — the
 flows need the app running on :3000/:3001 and a seeded database
@@ -204,3 +233,19 @@ Never report a command as passing that you did not run, and never summarise a
 failure. If tests fail, give the failing test names and the real output. A
 half-done task reported as done is worse than a blocked one reported as blocked —
 the next agent trusts this report and will not re-check it.
+
+## Output brevity
+
+Honesty is about failures; brevity is about everything else. The two do not
+conflict, because a green run carries no information beyond the fact that it was
+green.
+
+- **A passing command is reported as its last line and nothing more** — `42
+  passed`, `clean`. Do not paste the file list, the per-suite breakdown or the
+  timing table into your report, and do not paste them into your own context by
+  reading back more of the output than you need.
+- **A failing command is pasted in full**: the failing test names, the assertion
+  diff, the stack. Never truncate a red run, never paraphrase one, and never
+  report "some tests fail" without the output that says which.
+- **A skipped check is named as skipped**, with the reason. Silence reads as
+  clean, and that is the one misreading this report cannot afford.

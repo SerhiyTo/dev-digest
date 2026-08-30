@@ -11,6 +11,15 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-08-23: NEVER debounce an ARRAY through the usual
+  `useState(value)` + `useEffect(() => setTimeout(() => setSettled(value)), [value])`
+  hook. The array is rebuilt on every render, so its identity changes, the
+  effect re-arms every render, and `setSettled` with a fresh identity re-renders
+  — the loop is structural, not a timing accident, and no dependency list fixes
+  it. Debounce a PRIMITIVE key instead (`paths.join("\n")`) and split it back on
+  the way out; TanStack hashes query keys structurally, so the array identity was
+  never what the query needed anyway (evidence:
+  client/src/components/doc-attach/DocAttachPanel.tsx `useDebouncedPaths`)
 - 2026-08-05: `element.click()` does NOT flush React state — it is a raw DOM click outside `act()`, so a handler that calls `setState` leaves the DOM unchanged and the next query fails with "Unable to find …". The existing tests here use `.click()` and pass only because they assert on a mock being called, never on a state transition, so copying the nearest test teaches the wrong pattern. ALWAYS use `fireEvent.click` (RTL wraps it in `act`) for anything that toggles component state — edit modes, expanders, tab switches (evidence: ConventionCard edit-mode tests failed on `.click()` and passed unchanged with `fireEvent.click` — client/src/app/repos/[repoId]/conventions/_components/ConventionsView/_components/ConventionCard/ConventionCard.test.tsx; prior-art pattern client/src/app/skills/[id]/_components/SkillEditor/_components/VersionsTab/VersionsTab.test.tsx)
 - 2026-08-05: `./scripts/e2e.sh` POISONS a running dev server's bundle. It starts its own `next dev -p 3100` from the same `client/` directory, so both servers share `client/.next`; the e2e process recompiles with `NEXT_PUBLIC_API_BASE=http://localhost:3101` inlined, and your :3000 server then serves those chunks — the app silently calls the (now torn-down) e2e API and every page shows a permanent skeleton or "Could not load…" while `curl localhost:3001` answers fine. Symptom-to-cause shortcut: `agent-browser network requests --filter 3001` returning nothing while requests to `:3101` appear. Fix = stop the dev server, `rm -rf .next`, restart. ALWAYS stop your dev server before running the e2e script (evidence: scripts/e2e.sh exports NEXT_PUBLIC_API_BASE + runs next dev from client/; client/src/lib/api.ts:5 reads it at compile time)
 - 2026-08-05: correction to the entry below — its "check `lsof -ti:3000` before building" advice is right, but a `pgrep -fl "next dev"` check gives a FALSE all-clear: the long-running process renames itself to `next-server (v15.5.19)` once booted, so only the port check finds it. Building against a live dev tree cost a debugging pass here (evidence: `lsof -ti:3000` → PID running `next-server`, while `pgrep -fl "next dev"` returned nothing)
@@ -19,6 +28,100 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-23: `client/src/vendor/ui/nav.ts` IS editable, despite the general
+  "vendored, treat as read-only" rule for `src/vendor/ui/` — SPEC-02 (AC-39,
+  AC-57) required adding exactly one item to `NAV`. The `Onboarding Tour` entry
+  in the WORKSPACE group plus its `g o` line in `SHORTCUTS` is the one
+  deliberate, spec-mandated edit to this file for this feature; nothing else in
+  it moved, renamed or was removed. Check the spec/plan before assuming a diff
+  touching `vendor/ui/` is a mistake to revert (evidence:
+  client/src/vendor/ui/nav.ts:26,65; specs/2026-08-23-onboarding-generator.md
+  AC-39, AC-57)
+- 2026-08-23: `activeKeyFor`'s per-route matching must be an ANCHORED pattern,
+  not a bare `.includes()` — `pathname.includes("/onboarding")` matched both
+  `/repos/:id/onboarding` (the new per-repo tour route) and the unrelated,
+  top-level `/onboarding` Add Repository screen, so the wrong sidebar item lit
+  up on that screen. Fixed with
+  `/^\/repos\/[^/]+\/onboarding(\/|$)/.test(pathname)`, scoped to the
+  repo-prefixed path. Any future nav key whose route segment is a substring of
+  another route needs the same anchoring, not `.includes()` (evidence:
+  client/src/components/app-shell/helpers.ts:29 `activeKeyFor`)
+- 2026-08-23: `client/src/lib/onboarding.ts` is the one place the three
+  complexity colours and the five section-kind order live, precisely so a THIRD
+  hand-rolled colour map is not created — two `SEV_COLOR` copies already exist
+  and have already drifted from `SEV` (see the 2026-08-01 entry below).
+  `COMPLEXITY[complexity].label` ("Low"/"Medium"/"High") is DEAD — nothing
+  reads it. The accessible pill word comes from
+  `` t(`complexity.${task.complexity}`) `` via next-intl instead, because a
+  hardcoded English `label` would violate the "every user-facing string goes
+  through next-intl" rule; only `.c`/`.bg` are consumed from the module. Do not
+  delete `.label` assuming it is unused dead code without checking for a
+  non-next-intl consumer, and do not read it expecting it to be the rendered
+  word (evidence: client/src/lib/onboarding.ts:11-18;
+  client/src/app/repos/[repoId]/onboarding/_components/FirstTasksSection/FirstTasksSection.tsx:24,35)
+- 2026-08-23: a mutation's failure is already derived state — read
+  `mutation.error` from the hook's return and map it, rather than passing
+  `mutate(vars, { onError })`. Two reasons beyond "derive, don't store": the
+  per-call form adds a second argument to every `mutate` call, which breaks
+  every `expect(mutate).toHaveBeenCalledWith([...])` assertion in a test that
+  mocks the hook (six of them here), and `lib/hooks/*` is frequently owned by
+  someone else in a parallel build, so `error` is the surface you can rely on
+  without editing the hook. TanStack clears it when the next mutation starts,
+  so the banner disappears on the next successful save by itself (evidence:
+  client/src/components/doc-attach/DocAttachPanel.tsx `saveError`;
+  client/src/components/doc-attach/helpers.ts `saveErrorText`)
+- 2026-08-23: `useTokenEstimate` (hooks/context.ts) is UNGUARDED — it takes an
+  unbounded `paths: string[]`, applies no slice and has no `onError`, while the
+  server caps `POST /repos/:id/context/estimate` at 20 paths **in the route
+  schema**, which surfaces as **422** (not the 409 the attach route uses; a
+  preview deliberately does not 409). Every caller must therefore slice to
+  `MAX_ATTACHMENTS` itself AND render an `isError` fallback, or the footer
+  breaks on a set the attach route would have accepted. The footer maps any
+  failure to ONE string rather than branching on status — the three-404 trap
+  recorded below is the reason not to branch (evidence:
+  client/src/lib/hooks/context.ts:100-106;
+  client/src/components/doc-attach/DocAttachPanel.tsx `footerText`;
+  server/src/modules/context/routes.ts:16-18 `.max(MAX_ATTACHMENTS)`)
+- 2026-08-23: a shared component that takes its strings as a `labels` prop
+  (the `markdown-editor/MarkdownEditor.tsx:1-6` rule) hits a wall as soon as a
+  string interpolates a value the COMPONENT owns rather than the caller —
+  `MarkdownEditor`'s callers precompute `t("config.bodyTokens", {count})`
+  because they hold the count, but an attached/total badge or a token footer
+  does not exist until the component's own queries resolve. The shape that
+  keeps i18n in the caller is a FUNCTION-valued label
+  (`attachedCount: (attached, total) => string`), not a `useTranslations` call
+  inside the shared component and not a formatted string prop (evidence:
+  client/src/components/doc-attach/DocAttachPanel.tsx `DocAttachLabels`;
+  callers client/src/app/{agents,skills}/[id]/.../ContextTab/ContextTab.tsx)
+- 2026-08-23: an HTTP status is NOT this API's error taxonomy — `err.code` is,
+  and branching on `err.status` alone silently collapses distinct server errors
+  into one message. `server/src/platform/errors.ts` gives every `AppError` a
+  string `code`, `app.ts`'s `setErrorHandler` ships it as
+  `{ error: { code, message, details } }`, and `apiFetch` parses it onto
+  `ApiError.code` (`src/lib/api.ts:10`) — but three different Project Context
+  failures all answer **404**: `not_cloned`, `not_found` (absent from the walk)
+  and `document_unreadable` (listed but unreadable). A `status === 404` branch
+  told the user to "Resync" for a file that resync cannot fix, and the test
+  stayed green because it pinned only one of the three. ALWAYS map `err.code` to
+  a message (with `err.message` as the fallback for an unrecognised code, since
+  `code` is `undefined` when the error body is not the JSON envelope), and write
+  one test case PER code (evidence:
+  server/src/modules/context/service.ts:75,83,84;
+  client/src/app/repos/[repoId]/context/_components/ProjectContextView/_components/DocumentPreview/constants.ts)
+- 2026-08-23: `src/vendor/shared` is a mirror in intent but NOT byte-identical
+  today — `diff -rq server/src/vendor/shared client/src/vendor/shared` reports
+  `contracts/{eval-ci,productionize,trace}.ts` drifting, and `eval-ci.ts` is the
+  sharp one: the client copy has **no `AgentManifest` block at all** (and no
+  `Provider`/`CiFailOn` imports), so an instruction to "mirror the new field on
+  `AgentManifest`" is unsatisfiable here without importing the whole missing
+  block — i.e. repairing drift that was scoped out. ALWAYS diff the specific
+  file before promising to carry a contract addition into the client; a `cp` of
+  the canonical file is only safe for files whose sole difference IS the
+  addition (that held for `adapters.ts`, `contracts/platform.ts`, `index.ts` and
+  the new `contracts/context.ts`). `scripts/verify-l04.sh` gates only three
+  files, so nothing catches the rest (evidence:
+  client/src/vendor/shared/contracts/eval-ci.ts:3 vs
+  server/src/vendor/shared/contracts/eval-ci.ts:145-176)
 - 2026-08-16: a next-intl message KEY, not just its value, can be swapped for a
   small namespaced set (`callerCount` → `callerCount.{call,type,mixed}`) and
   looked up with a template literal (`` t(`callerCount.${kind}`, {count}) ``)
@@ -86,6 +189,78 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-23: `@testing-library/user-event` is NOT a dependency of `client/`
+  (absent from `package.json`) even though the `react-testing-library` skill's
+  own examples import it unconditionally — a test that does
+  `import userEvent from "@testing-library/user-event"` fails `pnpm typecheck`
+  with TS2307 ("Cannot find module"), not a runtime error, so it surfaces before
+  the test even runs. Prove keyboard operability of a native `<button>` instead
+  by asserting `element.tagName === "BUTTON"` (native buttons are keyboard
+  operable by HTML semantics; jsdom's `fireEvent` does not simulate the
+  browser's own Enter/Space-to-click translation for real elements anyway, so
+  simulating it would prove nothing even if the package were installed) plus
+  `element.focus()` /`toHaveFocus()` for reachability, and use `fireEvent.click`
+  for the actual toggle (evidence: `client/package.json` has
+  `@testing-library/react` + `@testing-library/jest-dom` but no
+  `@testing-library/user-event`; onboarding/_components/SectionCard/SectionCard.test.tsx)
+- 2026-08-23: mocking the `mermaid` package's dynamic `import("mermaid")` (as
+  `MermaidDiagram.tsx` does) needs `vi.mock("mermaid", factory)` to reference
+  its mock functions via `vi.hoisted()` — `vi.mock` factories are hoisted above
+  top-level `const` declarations, so a factory that closes over an
+  un-hoisted `const parse = vi.fn(...)` throws "Cannot access 'parse' before
+  initialization". Once hoisted, the mock functions are MODULE-LEVEL and their
+  call counts persist across `it()` blocks in the same file — an
+  `expect(mermaidRender).not.toHaveBeenCalled()` in a later test failed on a
+  call recorded by an earlier test, not by the code under test in that test;
+  fix with `vi.clearAllMocks()` in `afterEach` alongside `cleanup()`. This is
+  this repo's first test to mock `mermaid` at all (evidence:
+  onboarding/_components/ArchitectureSection/ArchitectureSection.test.tsx;
+  client/src/components/mermaid-diagram/MermaidDiagram.tsx:36 `await
+  import("mermaid")`)
+- 2026-08-23: next-intl's MISSING_MESSAGE fallback RENDERS THE KEY PATH as the
+  string (`"agents.context.saveErrorLimit"` appears in the DOM), so a message
+  added to the wrong block of a messages file still renders something and still
+  satisfies `getByRole("alert")` / `getByText(/Not saved/)`-shaped assertions —
+  only an exact-text assertion catches it, and the real signal is an
+  `IntlError: MISSING_MESSAGE` line on stderr of an otherwise green-looking run.
+  The trap that puts it in the wrong block: `messages/en/agents.json` has three
+  `"loadError"` keys and `skills.json` has six, so anchoring a textual insert on
+  a key NAME lands in whichever namespace comes first in the file. Anchor on the
+  namespace (`  "context": {` … its closing brace) and insert inside that range
+  (evidence: client/messages/en/skills.json:191-195 vs the `list` namespace's
+  own `loadError` at :13)
+- 2026-08-23: RTL's default TextMatch normaliser (trim + collapse whitespace
+  runs) also defeats `getByText` for a MULTI-LINE `<pre>` — asserting a prompt
+  segment renders "the full text as sent" against a literal `\n`-joined fixture
+  never matches, and `toHaveTextContent` collapses it the same way. Pass an
+  identity normaliser, `screen.getByText(BLOCK, { normalizer: (v) => v })`, then
+  assert `el.textContent).toBe(BLOCK)`; this is the `<pre>` sibling of the
+  2026-08-05 `getByDisplayValue` entry below and it bites for the same reason
+  (evidence:
+  client/src/app/repos/[repoId]/pulls/[number]/_components/RunTraceDrawer/_components/TraceBody/TraceBody.test.tsx
+  "labels the segment as untrusted attached specs")
+- 2026-08-23: react-markdown v9 dropped the `inline` flag on the `code`
+  component, so a `code` renderer CANNOT tell an inline chip from a fenced
+  block — adding a `pre` renderer with block styling while `code` keeps the
+  chip style double-decorates every code block. The fix that works without
+  reaching for `className="language-*"` (absent on fenced blocks with no
+  language): a module-level `React.createContext(false)` provided by the `pre`
+  renderer and read by a small `MarkdownCode` component, which is the only
+  place that knows it is inside a block (evidence:
+  client/src/vendor/ui/primitives/Markdown.tsx `BlockCodeContext`)
+- 2026-08-23: a URL that `urlTransform` rejects renders as `<a href="">`, and
+  `getByRole("link")` does NOT match it — dom-accessibility-api maps an anchor
+  with an empty `href` to `generic`, so `getByRole("link", { name: "click" })`
+  throws "Unable to find an accessible element" instead of returning the inert
+  anchor. Assert a dropped `javascript:` URL with
+  `getByText(label)).toHaveAttribute("href", "")` plus a
+  `queryByRole("link", …)` negative; the role query alone reads as a false
+  green only if you assume the element vanished. Also worth knowing:
+  react-markdown v9 already strips `javascript:` through `defaultUrlTransform`,
+  so an allowlist prop is about narrowing (http/https only) rather than about
+  XSS that would otherwise land (evidence:
+  client/src/app/repos/[repoId]/context/_components/ProjectContextView/_components/DocumentPreview/DocumentPreview.test.tsx
+  "renders a hostile document inert")
 - 2026-08-16: RTL's `getByText` only aggregates an element's DIRECT text-node
   children (`getNodeText` filters `childNodes` for `nodeType === TEXT_NODE`,
   ignoring nested elements), so a stat row built as
@@ -114,6 +289,35 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-23: L05 Project Context review fixes — surfaced every attachment
+  mutation failure in `DocAttachPanel` as a per-`code` banner (409/400/404/500
+  plus an `err.message` fallback), and made the repo scoping explicit: the
+  badge and a scope note name the repository the list came from, and an
+  unlisted attachment now reads "not in this repo" with a tooltip that offers
+  cross-repo, deleted, renamed and beyond-the-cap as causes without asserting
+  one; 15 new RTL cases across the panel and the agent tab.
+- 2026-08-23: L05 Project Context T10 — one shared `components/doc-attach`
+  panel (labels prop, native drag reorder plus the repo's first keyboard
+  up/down `IconBtn`s, missing-attachment rows, attached/total badge, debounced
+  token footer capped at 20 paths) mounted as a Context tab on both the agent
+  and the skill editor; 14 RTL cases.
+- 2026-08-23: L05 Project Context T11 — relabelled `runs.trace.prompt.specs` to
+  "Project context — attached specs (untrusted)" and added four `TraceBody.test.tsx`
+  cases (segment label, full block text as sent, `Specs read` paths in injection
+  order, and the segment absent + none state when nothing was injected); no
+  component change was needed.
+- 2026-08-23: L05 Project Context T8 — `/repos/:repoId/context` page
+  (list grouped by category with a `used_by_agents` badge, preview, `?path=`
+  selection, not-cloned / no-documents / unreadable / error states, resync with
+  last-refresh time), `lib/hooks/context.ts` replacing the dormant
+  `useContextFiles`/`useReindexContext`, an opt-in `allowedUrlSchemes` prop plus
+  heading/list/table/pre renderers on the vendored `Markdown` primitive, and the
+  nav-registry entry (`g d`); 10 RTL cases.
+- 2026-08-23: L05 Project Context T6 — mirrored the new `contracts/context.ts`,
+  the barrel entry, the `SpecFile` `@deprecated` marker and the `CloneDocsSource`
+  port from `server/src/vendor/shared`, and re-exported the eight new types from
+  `lib/types.ts`; the `eval-ci.ts` half of the mirror could not be carried
+  because the client copy lacks `AgentManifest`.
 - 2026-08-16: Blast Radius — distinguished a caller's `kind` ('call' vs
   optional-absent-as-call vs 'type') in `BlastSymbolRow` (muted marker on
   type-kind caller rows) and in the `callerCount`/`stat.callers` wording via a

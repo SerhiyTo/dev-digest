@@ -1,6 +1,6 @@
 import { simpleGit, type SimpleGit } from 'simple-git';
-import { join } from 'node:path';
-import { mkdir, readFile, access, rm } from 'node:fs/promises';
+import { join, sep } from 'node:path';
+import { mkdir, readFile, access, rm, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import type {
   GitClient,
@@ -18,6 +18,58 @@ import { parseUnifiedDiff } from './diff-parser.js';
  * when it isn't, the indexer falls back to a full reindex.
  */
 const RESYNC_FETCH_DEPTH = 50;
+
+async function resolveWithinClone(root: string, path: string): Promise<string> {
+  const realRoot = await realpath(root);
+  const realTarget = await realpath(join(root, path));
+  const withinRoot = realTarget === realRoot || realTarget.startsWith(realRoot + sep);
+  if (!withinRoot) throw new Error(`Path escapes repository clone: ${path}`);
+  return realTarget;
+}
+
+function withoutPartialUtf8Tail(buffer: Buffer): Buffer {
+  for (let back = 0; back < 4 && back < buffer.length; back += 1) {
+    const index = buffer.length - 1 - back;
+    const byte = buffer[index] ?? 0;
+    if ((byte & 0b1100_0000) === 0b1000_0000) continue;
+    const width = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1;
+    return width === back + 1 ? buffer : buffer.subarray(0, index);
+  }
+  return buffer;
+}
+
+export async function readClonedFileBounded(
+  root: string,
+  path: string,
+  maxBytes: number,
+): Promise<{ content: string; truncated: boolean } | null> {
+  let target: string;
+  try {
+    target = await resolveWithinClone(root, path);
+  } catch {
+    return null;
+  }
+
+  let handle;
+  try {
+    handle = await open(target, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) return null;
+    const truncated = info.size > maxBytes;
+    const wanted = truncated ? maxBytes : info.size;
+    const buffer = Buffer.alloc(wanted);
+    const { bytesRead } = await handle.read(buffer, 0, wanted, 0);
+    const slice = buffer.subarray(0, bytesRead);
+    const bytes = truncated ? withoutPartialUtf8Tail(slice) : slice;
+    return { content: bytes.toString('utf8'), truncated };
+  } finally {
+    await handle.close();
+  }
+}
 
 /**
  * GitClient over simple-git. Repos clone to
@@ -127,7 +179,8 @@ export class SimpleGitClient implements GitClient {
   }
 
   async readFile(repo: RepoRef, path: string): Promise<string> {
-    return readFile(join(this.clonePathFor(repo), path), 'utf8');
+    const target = await resolveWithinClone(this.clonePathFor(repo), path);
+    return readFile(target, 'utf8');
   }
 }
 

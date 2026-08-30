@@ -52,9 +52,14 @@ Read these before anything else. They hold regardless of what the task says.
   `<module>/docs/<topic>.md`, `<module>/README.md`, `docs/<topic>.md`,
   `docs/specs/YYYY-MM-DD-<topic>.md`, root `README.md`, root `TESTING.md`.
   Anything else is a violation — stop and report it rather than writing it.
-- **Never write in `docs/plans/`.** `planner` owns that directory. Those files are
-  dated artefacts of a decision, not documentation, and a doc written into one
-  destroys the record `plan-verifier` reads back.
+- **Never write in the root `specs/` directory.** `spec-creator` owns it. Those
+  are pre-implementation specifications with a `Spec ID` and EARS acceptance
+  criteria — a different document from the module spec you write, in a different
+  tense. Yours goes in `<module>/specs/`; if the root spec needs correcting,
+  report it under `Contradictions found`.
+- **Never write in `docs/plans/`.** `implementation-planner` owns that
+  directory. Those files are dated artefacts of a decision, not documentation,
+  and a doc written into one destroys the record `plan-verifier` reads back.
 - **Never edit any `INSIGHTS.md`.** It is append-only and it is appended by the
   agent that did the work, through the `engineering-insights` skill. If you found
   something that belongs there, put it in your `## Handoff` as a candidate entry
@@ -90,9 +95,11 @@ Ask when any of these hold:
 - The form is unclear — does the caller want the *why* (a spec) or the *how-to*
   (a topic doc)? They are different documents and must not be one file.
 - The destination is ambiguous because the feature spans two modules.
-- The "feature" names something that does not exist in the tree yet.
-  Documentation of unimplemented behaviour is a spec of intent, and that is
-  `planner`'s territory, not yours.
+- The "feature" names something that does not exist in the tree yet. You
+  document what was built, so there is nothing to read. Note that no agent
+  writes a spec ahead of the code — `implementation-planner` plans the work and
+  is barred from authoring specs — so say what is missing and let the caller
+  decide whether to build it first or ask you for a spec of intent explicitly.
 - The material is a plan with no corresponding code, so there is nothing to read.
 
 Offer a default so the caller can answer with one word:
@@ -116,7 +123,7 @@ Once answered, proceed. Do not open a second round of questions.
 | Cross-module testing strategy | edit root `TESTING.md` | explanation |
 | A decision with context, alternatives and consequences | a `**Why X and not Y**` section **inside the relevant spec** — never a new `docs/adr/` tree | explanation |
 | A learning the next session would otherwise get wrong | **not yours** — hand it to the owner for `engineering-insights` | — |
-| A plan for work not yet done | **not yours** — that is `planner` and `docs/plans/` | — |
+| A plan for work not yet done | **not yours** — that is `implementation-planner` and `docs/plans/` | — |
 
 ## Which form to write
 
@@ -211,7 +218,7 @@ re-invoking them.
 | `react-testing-library` | Describing a test plan in a `## Server tests` section | yes — invoke on demand |
 | `zod` | Describing a contract schema accurately | yes — invoke on demand |
 | `typescript-expert` | Describing a type-level API accurately | yes — invoke on demand |
-| `security` | OWASP-shaped review | no — a security agent owns the verdict |
+| `security` | OWASP-shaped review | no — `security-auditor` owns the verdict |
 | `pr-self-review` | Pre-PR merge gate | **never** — it is a gate, not an advisor |
 
 ## Verification

@@ -27,18 +27,28 @@ flowchart TD
   ONB["/onboarding<br/>add repo"] -->|"POST /repos"| API[("Fastify API")]
   PULLS --> PR["/pulls/:number<br/>review detail<br/>(overview · diff · findings)"]
 
-  AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config)"]
+  AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config · skills · context)"]
   SETTINGS["/settings/:section<br/>API keys · models"]
+  CONTEXT["/repos/:repoId/context<br/>project context<br/>list · preview (?path=)"]
 
   PULLS -->|"GET /repos/:id/pulls · /repos/:id/index-state"| API
   PR -->|"GET /pulls/:id · /reviews · /pulls/:id/comments<br/>POST /pulls/:id/review · /findings/:id/(accept|dismiss)"| API
   AGENTS -->|"/agents · /agents/:id"| API
   SETTINGS -->|"/settings · /providers"| API
+  CONTEXT -->|"GET /repos/:id/context · /context/file<br/>POST /context/resync · /context/estimate"| API
+  AGENT -->|"GET · PUT /agents/:id/context (Context tab)"| API
 ```
 
 Cross-cutting chrome lives in `src/components/app-shell` (nav, breadcrumbs,
 `g`-then-key shortcuts). Pages are thin; feature logic sits in colocated
-`_components/<Name>/` folders, each with its own `*.test.tsx`.
+`_components/<Name>/` folders, each with its own `*.test.tsx`. A page is only
+reachable from the sidebar once it is also registered in `src/vendor/ui/nav.ts`
+— that file, not the App Router, is the list of nav entries and `g`-shortcuts,
+and it holds routes this map does not draw (`/skills`,
+`/repos/:repoId/conventions`). A component shared by two routes lives in
+`src/components/` and takes its user-facing strings as props rather than
+reading a route's `next-intl` namespace (`src/components/doc-attach`; see
+`specs/2026-08-23-project-context.md`).
 
 ## Testing
 

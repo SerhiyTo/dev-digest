@@ -57,6 +57,15 @@ drops hallucinated line references), and persists structured findings with a
 severity and score. All local; the only outbound calls are to GitHub (PR data)
 and the LLM (via OpenRouter).
 
+An agent can also be given **project context**: markdown you attach from the
+repository's own `docs/`, `specs/`, `plans/` and `insights/` folders, read out of
+the clone at its default branch and injected as untrusted text so the review can
+be measured against the team's written intent. Attach it on an agent's or
+skill's **Context** tab, browse it on the **Project Context** page, and see
+exactly what a run injected in the run-trace drawer
+([server](server/specs/2026-08-23-project-context.md) ·
+[client](client/specs/2026-08-23-project-context.md)).
+
 Each package has its own README with deeper diagrams:
 [`client`](client/README.md) (UI route map) ·
 [`server`](server/README.md) (API map) ·

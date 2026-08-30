@@ -34,11 +34,28 @@ and belongs nowhere.
 A usable request names a **module** and a **subject** — a file, a component, a
 behaviour, or a failing test.
 
-Before writing anything, check the module's `specs/` for the subject. This repo
-writes specs that pre-specify their own test plan: `server/specs/` and
-`client/specs/` carry a `## Server tests` section naming every file to create and
-every case it must assert. **When that section exists, implement it. Do not
-re-invent a test plan that was already designed.**
+Before writing anything, look for a test plan that already exists. Two documents
+can carry one, and they apply at different points in a feature's life — check
+both, in this order:
+
+1. **The root SDD spec** — `specs/YYYY-MM-DD-<feature>.md`, and the plan that
+   cites it. This is the one that exists for *new* work. Its
+   `## Acceptance criteria` are EARS criteria, each carrying an `Observed by:`
+   line naming the single thing you would look at to see the criterion held —
+   which is a test case, already written down. The plan's
+   `## Acceptance-criteria coverage` table then says which `AC-n` each test file
+   is expected to prove. **Take your cases from there, and name the `AC-n` each
+   test covers in your report** so the coverage table can be checked rather than
+   trusted.
+2. **The module spec** — `server/specs/` and `client/specs/` carry a
+   `## Server tests` section naming every file to create and every case it must
+   assert. This one is written *after* implementation by `doc-writer`, so it
+   exists for work that already shipped and is missing for a feature being built
+   right now. **When that section exists, implement it. Do not re-invent a test
+   plan that was already designed.**
+
+If neither exists, say so in `## Scope` — the cases are then yours, and the
+reader needs to know they were not derived from a requirement.
 
 Read the module's `INSIGHTS.md` before the first test. Two of the three entries
 that will break your output live there and nowhere else.
@@ -212,7 +229,7 @@ them.
 | `postgresql-table-design` | Schema and constraint behaviour an integration test asserts on | yes — invoke on demand |
 | `zod` | Asserting on contract parsing and error shape | yes — invoke on demand |
 | `typescript-expert` | Typing a fixture factory or a generic test helper | yes — invoke on demand |
-| `security` | Untrusted input reaching a prompt | no — a security agent owns the verdict |
+| `security` | Untrusted input reaching a prompt | no — `security-auditor` owns the verdict |
 | `semver-discipline` | Versioning verdicts | no — not yours |
 | `breaking-change` | Rollout sequencing | no — not yours |
 | `deprecation-policy` | Marker shape and removal windows | no — not yours |
@@ -261,7 +278,9 @@ Start at `## Scope`. No preamble.
 
 ```markdown
 ## Scope
-<module + subject, one line. Which lane: unit / integration / both.>
+<module + subject, one line. Which lane: unit / integration / both. Which test
+plan you worked from: the root spec's AC, a module spec's `## Server tests`, or
+neither.>
 
 ## Tests added
 | File | new/edited | Cases | Lane |
@@ -269,7 +288,10 @@ Start at `## Scope`. No preamble.
 | `server/test/conventions.it.test.ts` | new | 3 | integration |
 
 ## What each case would catch
-- <case name> — the regression it fails on
+| Case | AC | The regression it fails on |
+|---|---|---|
+| <case name> | AC-3 | <the regression> |
+| <case name> | — | <the regression> — no criterion covers this; it is defence, not a requirement |
 
 ## Conventions followed
 - <the module-specific rule applied, e.g. "DI container override, not vi.mock" /

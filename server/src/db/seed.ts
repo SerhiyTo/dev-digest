@@ -1,7 +1,14 @@
 import 'dotenv/config';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
 import { eq, and } from 'drizzle-orm';
+import { assemblePrompt } from '@devdigest/reviewer-core';
+import type { RunLogLine, RunTrace } from '@devdigest/shared';
+import { loadConfig } from '../platform/config.js';
+import { assembleProjectContext } from '../modules/context/assemble.js';
+import { taskLine } from '../modules/reviews/helpers.js';
 import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
@@ -46,8 +53,22 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * Also a persistent repo-intel index (repo_index_state/symbols/references/
  * file_rank/file_facts) for acme/payments-api and a second, merged PR #415
  * that also touches src/middleware/ratelimit.ts — without these the Blast
- * Radius card has nothing to render (repos.clonePath is null here, so both
- * of getBlastRadius's paths would otherwise come back empty + degraded).
+ * Radius card has nothing to render (the seeded clone below holds project
+ * documentation only and no source files, so getBlastRadius's live path
+ * would still come back empty + degraded).
+ *
+ * Also a fixture clone for acme/payments-api under the configured clone
+ * directory (`AppConfig.cloneDir`/acme/payments-api, the same path the clone
+ * job would write) holding four markdown documents under docs/ and specs/,
+ * with repos.clone_path pointed at it. Without it Project Context discovery
+ * finds nothing for the demo repo and reports `not_cloned`.
+ *
+ * Also one completed agent_runs row for PR #482 (Security Reviewer, status
+ * `done`) and its run_traces document, whose prompt_assembly and specs_read
+ * carry the fixture clone's specs/idempotency-keys.md. Without it the run-trace
+ * drawer has no run to open, since it mounts on `?trace=<runId>` and every
+ * opener renders from agent_runs — the seeded review alone puts nothing there.
+ * The trace is built through the real assembler, so its bytes match a live run.
  *
  * Remaining course lessons populate the other tables (memory, eval, …) once
  * their features are built — they start empty here.
@@ -55,6 +76,189 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
 export const SYSTEM_USER_EMAIL = 'you@local';
+
+export const DEMO_REPO_OWNER = 'acme';
+export const DEMO_REPO_NAME = 'payments-api';
+
+/**
+ * Project-context fixture for the demo clone. Every path starts with one of the
+ * four scanned roots (docs/specs/plans/insights) or discovery will not see it,
+ * and every body stays far under MAX_DOC_CHARS so no cap fires. The text is
+ * fixed: e2e flow 09 waits on lines from it.
+ */
+export const DEMO_REPO_DOCS: Readonly<Record<string, string>> = {
+  'docs/architecture.md': `# Architecture
+
+The payments API takes card and wallet charges for merchants on the Acme
+platform. It is one Node service in front of Postgres, reaching the card
+networks through a single vendor gateway.
+
+Every payment request enters through the public gateway and leaves through the ledger writer.
+
+## Components
+
+- src/api/public/ is the merchant-facing HTTP surface.
+- src/middleware/ratelimit.ts applies a token bucket to every public route.
+- src/ledger/ is the append-only double-entry ledger and the only writer of ledger_entries.
+- src/gateway/ is the vendor client, and the only module allowed to hold network credentials.
+
+## Invariants
+
+- A charge reaches the ledger before the merchant is told it succeeded.
+- The ledger is append-only: a correction is a new entry, never an update.
+- No module outside src/gateway/ may talk to the card networks.
+`,
+  'docs/runbooks/incident-response.md': `# Runbook: payment incident response
+
+Page the on-call payments engineer before touching the ledger writer.
+
+## Severity
+
+| Level | Trigger | First response |
+|---|---|---|
+| SEV1 | Charge failures above 5% for five minutes | Page on-call, open an incident channel |
+| SEV2 | Refunds queued longer than 30 minutes | Page on-call during business hours |
+| SEV3 | Raised gateway latency with no failures | File a ticket |
+
+## Steps
+
+1. Read the blast radius off the gateway dashboard before changing anything.
+2. Disable the affected merchant, never the whole gateway.
+3. Reconcile the ledger against the vendor report once the incident is closed.
+`,
+  'specs/idempotency-keys.md': `# Spec: idempotency keys
+
+Status: accepted
+
+An idempotency key is valid for exactly 24 hours and is scoped to one merchant.
+
+## Requirements
+
+- Every mutating request under /api/public must carry an Idempotency-Key header.
+- A replay with the same key and the same body returns the first response and its status code.
+- A replay with the same key and a different body is rejected with 409 Conflict.
+- The stored response is what a replay returns, so a replay never re-enters the gateway.
+`,
+  'specs/refund-window.md': `# Spec: refund window
+
+Status: accepted
+
+A refund may be issued for 90 days after capture, and never after the dispute closes.
+
+## Requirements
+
+- A partial refund is allowed while the remaining refundable amount is above zero.
+- A refund writes two ledger entries and never mutates the original charge.
+- A refund asked for after the window is rejected with 422 and the capture date.
+`,
+};
+
+export const DEMO_RUN_AGENT_NAME = 'Security Reviewer';
+export const DEMO_RUN_DOC_PATH = 'specs/idempotency-keys.md';
+
+/**
+ * Fixed identity of the fixture run. `ranAt` doubles as the natural key the
+ * select-then-insert below matches on — `agent_runs` has no unique constraint,
+ * so a stable timestamp is what keeps re-seeding from stacking duplicate runs.
+ */
+const DEMO_RUN_RAN_AT = new Date('2026-08-20T09:15:00Z');
+
+const DEMO_RUN_DIFF = `diff --git a/src/api/public/webhooks.ts b/src/api/public/webhooks.ts
+--- a/src/api/public/webhooks.ts
++++ b/src/api/public/webhooks.ts
+@@ -42,6 +42,12 @@ export async function handleWebhook(req: Request, res: Response) {
+   const merchantId = req.headers['x-merchant-id'];
++  const key = req.headers['idempotency-key'];
++  if (!key) {
++    return res.status(400).json({ error: 'Idempotency-Key header is required' });
++  }
++
++  await rateLimit({ key: bucketKey(req), limit: 100, windowMs: 60_000 });
+   const event = await gateway.verify(req.rawBody, req.headers['x-signature']);
+   return res.json(await ledger.record(merchantId, event));
+ }
+`;
+
+const DEMO_RUN_RAW_OUTPUT = `{
+  "verdict": "approve",
+  "summary": "The new Idempotency-Key guard on the public webhook matches specs/idempotency-keys.md: the header is mandatory on a mutating public route and a missing key is rejected before the gateway is reached. No secret handling, injection or SSRF surface is introduced by this diff.",
+  "findings": []
+}`;
+
+const DEMO_RUN_LOG: RunLogLine[] = [
+  { t: '09:15:00', kind: 'info', msg: 'Diff ready — 1 changed file(s); starting 1 agent run(s)' },
+  {
+    t: '09:15:00',
+    kind: 'info',
+    msg: `Starting review with agent "${DEMO_RUN_AGENT_NAME}" (${DEFAULT_PROVIDER}/${DEFAULT_MODEL})`,
+  },
+  { t: '09:15:01', kind: 'info', msg: 'skills: 0 attached' },
+  { t: '09:15:01', kind: 'info', msg: 'project context: 1 injected, 0 skipped' },
+  { t: '09:15:08', kind: 'tool', msg: 'review_file src/api/public/webhooks.ts' },
+  { t: '09:15:08', kind: 'result', msg: 'Persisted review with 0 finding(s)' },
+  { t: '09:15:08', kind: 'info', msg: 'Run complete; trace persisted' },
+];
+
+/**
+ * Build the fixture trace through the REAL assembler, so the bytes the drawer
+ * shows are the bytes a live run would have produced: `assembleProjectContext`
+ * supplies the path-labelled document and `assemblePrompt` does the positional
+ * `<untrusted source="spec-0">` fencing and the `## Project context` section.
+ */
+function demoRunTrace(pull: typeof t.pullRequests.$inferSelect): RunTrace {
+  const { specs, specsRead } = assembleProjectContext([
+    { path: DEMO_RUN_DOC_PATH, text: DEMO_REPO_DOCS[DEMO_RUN_DOC_PATH]! },
+  ]);
+  const { assembly } = assemblePrompt({
+    system: SECURITY_REVIEWER_PROMPT,
+    specs,
+    diff: DEMO_RUN_DIFF,
+    task: taskLine(pull),
+    ...(pull.body ? { prDescription: pull.body } : {}),
+  });
+
+  return {
+    config: {
+      agent: DEMO_RUN_AGENT_NAME,
+      version: '1',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      pr: pull.number,
+      source: 'local',
+    },
+    stats: {
+      duration_ms: 8420,
+      tokens_in: 6180,
+      tokens_out: 742,
+      cost_usd: 0.0031,
+      findings: 0,
+      grounding: '0/0 passed',
+    },
+    prompt_assembly: assembly,
+    tool_calls: [
+      { tool: 'review_file', args: 'src/api/public/webhooks.ts', meta: 'single-pass', ms: 8420 },
+    ],
+    raw_output: DEMO_RUN_RAW_OUTPUT,
+    memory_pulled: [],
+    specs_read: specsRead,
+    log: DEMO_RUN_LOG,
+  };
+}
+
+/**
+ * Materialise the fixture clone. Idempotent by construction: fixed paths, fixed
+ * bodies, recursive mkdir and a whole-file write, so a second run reproduces the
+ * same tree rather than appending to it.
+ */
+async function writeDemoClone(cloneDir: string): Promise<string> {
+  const clonePath = join(cloneDir, DEMO_REPO_OWNER, DEMO_REPO_NAME);
+  for (const [docPath, body] of Object.entries(DEMO_REPO_DOCS)) {
+    const file = join(clonePath, ...docPath.split('/'));
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, body, 'utf8');
+  }
+  return clonePath;
+}
 
 export async function seed(db: Db): Promise<{ workspaceId: string; userId: string }> {
   // ---- workspace + user (no-auth defaults) ----
@@ -98,23 +302,32 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .onConflictDoNothing();
   }
 
-  // ---- demo repo (acme/payments-api) ----
+  // ---- demo repo (acme/payments-api) + its project-context fixture clone ----
+  const demoFullName = `${DEMO_REPO_OWNER}/${DEMO_REPO_NAME}`;
+  const demoClonePath = await writeDemoClone(loadConfig().cloneDir);
+
   let [repo] = await db
     .select()
     .from(t.repos)
-    .where(and(eq(t.repos.workspaceId, workspaceId), eq(t.repos.fullName, 'acme/payments-api')));
+    .where(and(eq(t.repos.workspaceId, workspaceId), eq(t.repos.fullName, demoFullName)));
   if (!repo) {
     [repo] = await db
       .insert(t.repos)
       .values({
         workspaceId,
-        owner: 'acme',
-        name: 'payments-api',
-        fullName: 'acme/payments-api',
+        owner: DEMO_REPO_OWNER,
+        name: DEMO_REPO_NAME,
+        fullName: demoFullName,
         defaultBranch: 'main',
-        clonePath: null,
+        clonePath: demoClonePath,
         createdBy: userId,
       })
+      .returning();
+  } else if (repo.clonePath !== demoClonePath) {
+    [repo] = await db
+      .update(t.repos)
+      .set({ clonePath: demoClonePath })
+      .where(eq(t.repos.id, repo.id))
       .returning();
   }
   const repoId = repo!.id;
@@ -665,6 +878,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       skillLinks: [{ skillName: 'api-contract-compat', order: 0 }],
     },
   ];
+  const agentIdByName = new Map<string, string>();
   for (const { skillLinks, ...agentValues } of seedAgents) {
     let [existing] = await db
       .select()
@@ -673,6 +887,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     if (!existing) {
       [existing] = await db.insert(t.agents).values(agentValues).returning();
     }
+    agentIdByName.set(agentValues.name, existing!.id);
     if (skillLinks) {
       for (const link of skillLinks) {
         const skillId = skillIdByName.get(link.skillName);
@@ -683,6 +898,55 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
           .onConflictDoNothing();
       }
     }
+  }
+
+  // ---- completed fixture run for PR #482, with its project-context trace ----
+  // Deliberately NOT linked to the seeded review (reviews.run_id stays null):
+  // this row exists so the run-trace drawer has something to open, and linking
+  // it would pull the Review Runs accordion the PR-findings flow asserts on
+  // into this change's blast radius for no gain.
+  const demoRunAgentId = agentIdByName.get(DEMO_RUN_AGENT_NAME);
+  if (demoRunAgentId) {
+    let [demoRun] = await db
+      .select({ id: t.agentRuns.id })
+      .from(t.agentRuns)
+      .where(
+        and(
+          eq(t.agentRuns.prId, pr!.id),
+          eq(t.agentRuns.agentId, demoRunAgentId),
+          eq(t.agentRuns.ranAt, DEMO_RUN_RAN_AT),
+        ),
+      );
+    if (!demoRun) {
+      [demoRun] = await db
+        .insert(t.agentRuns)
+        .values({
+          workspaceId,
+          agentId: demoRunAgentId,
+          prId: pr!.id,
+          ranAt: DEMO_RUN_RAN_AT,
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          durationMs: 8420,
+          tokensIn: 6180,
+          tokensOut: 742,
+          status: 'done',
+          source: 'local',
+          findingsCount: 0,
+          grounding: '0/0 passed',
+          score: 88,
+          blockers: 0,
+          costUsd: 0.0031,
+        })
+        .returning({ id: t.agentRuns.id });
+    }
+    await db
+      .insert(t.runTraces)
+      .values({ runId: demoRun!.id, trace: demoRunTrace(pr!) })
+      .onConflictDoUpdate({
+        target: t.runTraces.runId,
+        set: { trace: demoRunTrace(pr!) },
+      });
   }
 
   return { workspaceId, userId };
