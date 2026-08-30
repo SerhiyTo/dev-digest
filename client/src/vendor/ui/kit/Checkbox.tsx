@@ -26,6 +26,7 @@ export function Checkbox({
         type="button"
         role="checkbox"
         aria-checked={checked}
+        aria-label={typeof label === "string" ? label : undefined}
         onClick={() => onChange?.(!checked)}
         style={{
           width: 16,
