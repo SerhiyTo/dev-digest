@@ -351,7 +351,14 @@ The verdict line carries **all three counters, including the zeros**. `2 finding
 review from one whose CRITICAL count was left out. With nothing to report, write
 `zero findings` and name the concrete checks that establish it — ring placement,
 import direction, the dependency-cruiser result — never "checked against the
-rules", which tells the reader only that you believe yourself.
+rules", which tells the reader only that you believe yourself. A clean review has
+its own verdict line, and it is not shorter:
+
+```markdown
+## Verdict
+zero findings — ring placement and import direction checked in both changed
+modules; dependency-cruiser clean at 0 errors, 35 warnings (baseline).
+```
 
 Two formats, because they have two readers: the markdown is what a human reads
 in the thread, and the JSON is the finding shape this repo already uses
