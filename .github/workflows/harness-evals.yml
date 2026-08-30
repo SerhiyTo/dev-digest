@@ -1,0 +1,212 @@
+# Harness evals — regression check for the project's own Claude Code skills,
+# subagents and CLAUDE.md, driven by the evals/ package (evals/README.md).
+#
+# On every PR, `detect` maps the changed files onto the artifact(s) that moved
+# (evals/scripts/ci-detect.mjs) and only the affected suites run:
+#
+#   .claude/skills/<name>/**  -> evals/skills/<name>   (content tier, no tools)
+#   .claude/agents/<name>.md  -> evals/agents/<name>    (tool tier, subagent dispatch)
+#   CLAUDE.md / any agent / the engine itself -> evals/workflow (systemic tier)
+#
+# An artifact with no written evals is not a failure: ci-detect reports it as
+# skipped in the job summary instead of running (or failing) anything for it.
+#
+# Every tier runs on OpenRouter, never the Anthropic API, picked per tier by what
+# evals/README.md's own benchmark measured:
+#   - skill tier is content-only (no tool calls) -> deepseek/deepseek-chat, cheap and accurate here
+#   - agent/workflow tiers assert real subagent dispatch, which deepseek-chat fails at (it does the
+#     work inline instead of calling Task) -> google/gemini-2.5-flash, the model that passes
+# Tool tiers also need the bundled LiteLLM proxy (evals/proxy) to speak Anthropic wire protocol to a
+# non-Anthropic model; the content tier talks to OpenRouter directly and skips the proxy entirely.
+#
+# Deliberately advisory: each eval job runs with continue-on-error, so a flaky or failing eval never
+# blocks the PR. Results land in step summaries and uploaded `evals/results` artifacts.
+
+name: harness-evals
+
+on:
+  pull_request:
+    paths:
+      - '.claude/skills/**'
+      - '.claude/agents/**'
+      - 'CLAUDE.md'
+      - '**/CLAUDE.md'
+      - 'evals/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-evals-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  EVAL_JUDGE_MODEL: anthropic/claude-sonnet-5
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skills: ${{ steps.detect.outputs.skills }}
+      agents: ${{ steps.detect.outputs.agents }}
+      run_workflow: ${{ steps.detect.outputs.run_workflow }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compute changed files
+        id: changed
+        run: |
+          {
+            echo "files<<EOF"
+            git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Map changes to eval suites
+        id: detect
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
+        run: node evals/scripts/ci-detect.mjs
+
+      - name: Summary
+        if: always()
+        env:
+          SKILLS: ${{ steps.detect.outputs.skills }}
+          AGENTS: ${{ steps.detect.outputs.agents }}
+          RUN_WORKFLOW: ${{ steps.detect.outputs.run_workflow }}
+          SKIPPED_SKILLS: ${{ steps.detect.outputs.skipped_skills }}
+          SKIPPED_AGENTS: ${{ steps.detect.outputs.skipped_agents }}
+          AB_AGENTS: ${{ steps.detect.outputs.ab_agents }}
+        run: |
+          {
+            echo "### Harness evals — change detection"
+            echo "- skills to run: \`$SKILLS\`"
+            echo "- agents to run: \`$AGENTS\`"
+            echo "- workflow tier: \`$RUN_WORKFLOW\`"
+            if [ -n "$SKIPPED_SKILLS" ]; then echo "- SKIP skills (no evals): $SKIPPED_SKILLS"; fi
+            if [ -n "$SKIPPED_AGENTS" ]; then echo "- SKIP agents (no evals): $SKIPPED_AGENTS"; fi
+            if [ -n "$AB_AGENTS" ]; then echo "- SKIP agents (A/B variant, measured via eval:delta): $AB_AGENTS"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  skill-evals:
+    needs: detect
+    if: needs.detect.outputs.skills != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: evals
+    strategy:
+      fail-fast: false
+      matrix:
+        skill: ${{ fromJson(needs.detect.outputs.skills) }}
+    env:
+      EVAL_BACKEND: openrouter
+      EVAL_MODEL: deepseek/deepseek-chat
+      SKILL: ${{ matrix.skill }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run "skills/$SKILL"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skill-eval-results-${{ matrix.skill }}
+          path: evals/results
+          retention-days: 14
+
+  agent-evals:
+    needs: detect
+    if: needs.detect.outputs.agents != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: evals
+    strategy:
+      fail-fast: false
+      max-parallel: 2 # tool-tier cases throttle under concurrent OpenRouter load — see evals/README.md
+      matrix:
+        agent: ${{ fromJson(needs.detect.outputs.agents) }}
+    env:
+      EVAL_BACKEND: openrouter
+      EVAL_MODEL: google/gemini-2.5-flash
+      OPENROUTER_BASE_URL: http://localhost:4000
+      AGENT: ${{ matrix.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: docker compose -f proxy/docker-compose.yml up -d
+      - run: pnpm proxy:wait
+      - run: pnpm vitest run "agents/$AGENT/"
+      - if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+      - if: always()
+        run: docker compose -f proxy/docker-compose.yml down
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-results-${{ matrix.agent }}
+          path: evals/results
+          retention-days: 14
+
+  workflow-evals:
+    needs: detect
+    if: needs.detect.outputs.run_workflow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      EVAL_BACKEND: openrouter
+      EVAL_MODEL: google/gemini-2.5-flash
+      OPENROUTER_BASE_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: docker compose -f proxy/docker-compose.yml up -d
+      - run: pnpm proxy:wait
+      - run: pnpm eval:workflow
+      - if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+      - if: always()
+        run: docker compose -f proxy/docker-compose.yml down
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-eval-results
+          path: evals/results
+          retention-days: 14

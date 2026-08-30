@@ -14,9 +14,16 @@ import {
   EvalRun,
   MemoryItem,
   RunTrace,
+  RunSummary,
   Settings,
   Repo,
   PrDetail,
+  MergeRisk,
+  ReviewFocusRow,
+  PrBriefFileSummary,
+  PrBrief,
+  PrBriefGenerationState,
+  PrBriefResponse,
 } from '@devdigest/shared';
 
 /**
@@ -254,6 +261,41 @@ describe('AI contracts parse fixtures', () => {
     });
     expect(trace.stats.cost_usd ?? null).toBeNull();
   });
+
+  it('RunSummary parses ci_fail_on absent, null, and a valid enum value; rejects an out-of-enum value', () => {
+    const base = {
+      run_id: 'r1',
+      agent_id: 'a1',
+      agent_name: 'Security Reviewer',
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+      status: 'done',
+      error: null,
+      duration_ms: 8200,
+      tokens_in: 14820,
+      tokens_out: 1240,
+      cost_usd: 0.06,
+      findings_count: 3,
+      grounding: '3/3 passed',
+      ran_at: '2026-08-24T00:00:00.000Z',
+      score: 61,
+      blockers: 1,
+    };
+
+    const absent = RunSummary.safeParse(base);
+    expect(absent.success).toBe(true);
+    expect(absent.success && absent.data.ci_fail_on).toBeUndefined();
+
+    const nullValue = RunSummary.safeParse({ ...base, ci_fail_on: null });
+    expect(nullValue.success).toBe(true);
+    expect(nullValue.success && nullValue.data.ci_fail_on).toBeNull();
+
+    const withValue = RunSummary.safeParse({ ...base, ci_fail_on: 'critical' });
+    expect(withValue.success).toBe(true);
+    expect(withValue.success && withValue.data.ci_fail_on).toBe('critical');
+
+    expect(RunSummary.safeParse({ ...base, ci_fail_on: 'sometimes' }).success).toBe(false);
+  });
 });
 
 describe('platform DTOs', () => {
@@ -327,5 +369,139 @@ describe('Intent Layer — backward compatibility', () => {
     const parsed = PromptAssembly.safeParse({ system: 's', user: 'u' });
     expect(parsed.success).toBe(true);
     expect(parsed.success && parsed.data.intent).toBeUndefined();
+  });
+});
+
+describe('PR Brief — merge risk, review focus, file summaries', () => {
+  const legacyBrief = {
+    intent: { intent: 'x', in_scope: ['a'], out_of_scope: ['b'] },
+    blast: {
+      changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
+          endpoints_affected: ['GET /x'],
+          crons_affected: ['c'],
+        },
+      ],
+      summary: 's',
+    },
+    risks: {
+      risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'high', file_refs: ['a.ts'] }],
+    },
+    history: {
+      history: [
+        {
+          pr_number: 401,
+          title: 't',
+          merged_at: '2026-03-18',
+          author: 'a',
+          files_overlap: [],
+          notes: 'n',
+        },
+      ],
+    },
+  };
+
+  const fullBrief = {
+    ...legacyBrief,
+    summary: 'A short brief summary.',
+    merge_risk: 'medium',
+    review_focus: [{ file: 'a.ts', start_line: 1, end_line: 3, reason: 'touches the rate limiter' }],
+    file_summaries: [{ path: 'a.ts', summary: 'Adjusts the rate limit window.' }],
+    degraded_reason: null,
+    truncated: false,
+    head_sha: 'abc123',
+    model: 'claude-sonnet-5',
+    review_models: ['claude-sonnet-5', 'gpt-4.1'],
+    tokens_in: 1200,
+    tokens_out: 300,
+    cost_usd: 0.05,
+  };
+
+  it('MergeRisk accepts only low/medium/high', () => {
+    expect(MergeRisk.safeParse('medium').success).toBe(true);
+    expect(MergeRisk.safeParse('extreme').success).toBe(false);
+  });
+
+  it('ReviewFocusRow enforces the 140-character reason cap', () => {
+    expect(
+      ReviewFocusRow.safeParse({ file: 'a.ts', start_line: 1, end_line: 2, reason: 'x'.repeat(140) }).success,
+    ).toBe(true);
+    expect(
+      ReviewFocusRow.safeParse({ file: 'a.ts', start_line: 1, end_line: 2, reason: 'x'.repeat(141) }).success,
+    ).toBe(false);
+  });
+
+  it('PrBriefFileSummary enforces the 200-character summary cap', () => {
+    expect(PrBriefFileSummary.safeParse({ path: 'a.ts', summary: 'x'.repeat(200) }).success).toBe(true);
+    expect(PrBriefFileSummary.safeParse({ path: 'a.ts', summary: 'x'.repeat(201) }).success).toBe(false);
+  });
+
+  it('PrBrief.safeParse accepts the legacy four-field shape now that the new fields are optional', () => {
+    const parsed = PrBrief.safeParse(legacyBrief);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.review_focus).toEqual([]);
+      expect(parsed.data.file_summaries).toEqual([]);
+      expect(parsed.data.truncated).toBe(false);
+      expect(parsed.data.summary).toBeUndefined();
+      expect(parsed.data.merge_risk).toBeUndefined();
+    }
+  });
+
+  it('PrBrief.safeParse accepts a document carrying all four legacy fields plus the new ones', () => {
+    const parsed = PrBrief.safeParse(fullBrief);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.merge_risk).toBe('medium');
+      expect(parsed.data.review_focus).toHaveLength(1);
+      expect(parsed.data.file_summaries).toHaveLength(1);
+      expect(parsed.data.cost_usd).toBe(0.05);
+    }
+  });
+
+  it('PrBrief rejects a summary over 400 characters', () => {
+    expect(PrBrief.safeParse({ ...fullBrief, summary: 'x'.repeat(401) }).success).toBe(false);
+  });
+
+  it('PrBriefGenerationState requires only status', () => {
+    const parsed = PrBriefGenerationState.safeParse({
+      status: 'running',
+      provider: null,
+      model: null,
+      tokens_in: null,
+      tokens_out: null,
+      cost_usd: null,
+      error: null,
+      started_at: '2026-08-24T00:00:00.000Z',
+      finished_at: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('PrBriefResponse accepts brief: null and a null generation', () => {
+    const parsed = PrBriefResponse.safeParse({ brief: null, generation: null, stale: false });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('PrBriefResponse accepts a stored brief alongside a done generation', () => {
+    const parsed = PrBriefResponse.safeParse({
+      brief: fullBrief,
+      generation: {
+        status: 'done',
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        tokens_in: 1200,
+        tokens_out: 300,
+        cost_usd: 0.05,
+        error: null,
+        started_at: '2026-08-24T00:00:00.000Z',
+        finished_at: '2026-08-24T00:00:05.000Z',
+      },
+      stale: true,
+    });
+    expect(parsed.success).toBe(true);
   });
 });

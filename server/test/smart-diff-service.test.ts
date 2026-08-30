@@ -37,9 +37,10 @@ function store(
   pullExists = true,
 ): SmartDiffStore {
   return {
-    getPullSummary: async () => (pullExists ? { id: 'pr-1' } : undefined),
+    getPullSummary: async () => (pullExists ? { id: 'pr-1', headSha: 'head-sha-1' } : undefined),
     getFiles: async () => files,
     getFindings: async () => ({ ...EMPTY_FINDINGS, ...live }),
+    getBriefSummaries: async () => undefined,
   };
 }
 

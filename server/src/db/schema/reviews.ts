@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   doublePrecision,
+  boolean,
   index,
 } from 'drizzle-orm/pg-core';
 import { now } from './_shared';
@@ -103,4 +104,32 @@ export const prBrief = pgTable('pr_brief', {
     .primaryKey()
     .references(() => pullRequests.id, { onDelete: 'cascade' }),
   json: jsonb('json').notNull(),
+  headSha: text('head_sha'),
+  model: text('model'),
+  provider: text('provider'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+  degradedReason: text('degraded_reason'),
+  truncated: boolean('truncated').notNull().default(false),
+  generatedAt: timestamp('generated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const prBriefGenerations = pgTable('pr_brief_generations', {
+  prId: uuid('pr_id')
+    .primaryKey()
+    .references(() => pullRequests.id, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['running', 'done', 'failed'] }).notNull(),
+  provider: text('provider'),
+  model: text('model'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+  degradedReason: text('degraded_reason'),
+  error: text('error'),
+  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
 });

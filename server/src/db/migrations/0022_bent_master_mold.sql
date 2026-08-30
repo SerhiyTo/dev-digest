@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ADD COLUMN "ci_fail_on" text;

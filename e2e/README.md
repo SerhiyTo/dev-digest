@@ -102,3 +102,4 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
 | `08-conventions` | Skills Lab → Conventions → accept a seeded candidate → create-skill modal opens pre-filled |
 | `09-project-context` | Project Context → fixture documents discovered → preview a document → agent Context tab → attach → badge + token footer → `used_by_agents` back on the list → PR #482's seeded run trace: `Specs read` + the project-context prompt segment |
+| `10-pr-brief` | PR #482 → Overview tab's cached brief → merge-risk band → counts badge → a seeded risk → a review-focus row's reason → generated-from footer + cost/token line → Files changed tab → seeded pseudocode summary |

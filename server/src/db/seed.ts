@@ -5,7 +5,7 @@ import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
 import { eq, and } from 'drizzle-orm';
 import { assemblePrompt } from '@devdigest/reviewer-core';
-import type { RunLogLine, RunTrace } from '@devdigest/shared';
+import type { RunLogLine, RunTrace, PrBrief } from '@devdigest/shared';
 import { loadConfig } from '../platform/config.js';
 import { assembleProjectContext } from '../modules/context/assemble.js';
 import { taskLine } from '../modules/reviews/helpers.js';
@@ -179,6 +179,8 @@ const DEMO_RUN_DIFF = `diff --git a/src/api/public/webhooks.ts b/src/api/public/
  }
 `;
 
+const DEMO_WEBHOOK_HUNK_ONLY_PATCH = DEMO_RUN_DIFF.split('\n').slice(3).join('\n');
+
 const DEMO_RUN_RAW_OUTPUT = `{
   "verdict": "approve",
   "summary": "The new Idempotency-Key guard on the public webhook matches specs/idempotency-keys.md: the header is mandatory on a mutating public route and a missing key is rejected before the gateway is reached. No secret handling, injection or SSRF surface is introduced by this diff.",
@@ -242,6 +244,132 @@ function demoRunTrace(pull: typeof t.pullRequests.$inferSelect): RunTrace {
     memory_pulled: [],
     specs_read: specsRead,
     log: DEMO_RUN_LOG,
+  };
+}
+
+const DEMO_BRIEF_GENERATED_AT = new Date('2026-08-21T09:30:00Z');
+const DEMO_BRIEF_STARTED_AT = new Date('2026-08-21T09:29:40Z');
+const DEMO_BRIEF_FINISHED_AT = new Date('2026-08-21T09:29:52Z');
+
+function demoBriefDocument(pull: typeof t.pullRequests.$inferSelect): PrBrief {
+  return {
+    intent: {
+      intent:
+        'Add rate limiting to the public API surface so unauthenticated clients cannot exhaust merchant-facing endpoints.',
+      in_scope: ['src/middleware/ratelimit.ts', 'src/api/public/webhooks.ts'],
+      out_of_scope: ['src/gateway/'],
+      risk_areas: [{ label: 'Public endpoint abuse', severity: 'medium' }],
+      evidence: [
+        {
+          kind: 'pr_body',
+          detail: 'PR body states the rate-limiting goal directly.',
+          weight: 0.6,
+        },
+      ],
+      confidence: 0.82,
+    },
+    blast: {
+      changed_symbols: [
+        { name: 'rateLimit', file: 'src/middleware/ratelimit.ts', kind: 'function' },
+        { name: 'bucketKey', file: 'src/middleware/ratelimit.ts', kind: 'function' },
+      ],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          callers: [
+            { name: 'registerRoutes', file: 'src/api/public/index.ts', line: 23, kind: 'call' },
+            { name: 'handleWebhook', file: 'src/api/public/webhooks.ts', line: 45, kind: 'call' },
+            { name: 'registerHealthRoute', file: 'src/api/public/health.ts', line: 11, kind: 'call' },
+            { name: 'scheduleRateBucketReset', file: 'src/server.ts', line: 88, kind: 'call' },
+          ],
+          endpoints_affected: [
+            'GET /api/public/items',
+            'POST /api/public/webhooks',
+            'GET /api/public/health',
+          ],
+          crons_affected: ['reset-rate-buckets'],
+        },
+      ],
+      summary:
+        'rateLimit reaches three public HTTP endpoints and one scheduled job through four call sites.',
+    },
+    risks: {
+      risks: [
+        {
+          kind: 'security',
+          title: 'Config module worth a credential audit before merge',
+          severity: 'medium',
+          file_refs: ['src/config.ts'],
+          explanation:
+            'src/config.ts centralizes provider configuration read into the app, and the new rate-limiter settings land in the same file — confirm no committed credential rides along before merging.',
+        },
+        {
+          kind: 'performance',
+          title: 'N+1 query risk in user listing under new limiter',
+          severity: 'medium',
+          file_refs: ['src/api/users.ts:45-52'],
+          explanation:
+            'The rate limiter raises the request volume this endpoint must absorb, and the existing per-user loop still issues one query per row, which will scale worse once bursts are smoothed instead of rejected outright.',
+        },
+        {
+          kind: 'reliability',
+          title: 'Token-bucket edge cases have no test coverage',
+          severity: 'low',
+          file_refs: ['src/middleware/ratelimit.ts:25-40'],
+          explanation:
+            'src/middleware/ratelimit.ts introduces bucket refill logic without accompanying tests for burst and reset boundaries, leaving the edge behaviour unverified.',
+        },
+      ],
+    },
+    history: {
+      history: [
+        {
+          pr_number: 415,
+          title: 'Introduce token-bucket rate limiter scaffolding',
+          merged_at: '2026-07-04T16:30:00Z',
+          author: 'diego.reyes',
+          files_overlap: ['src/middleware/ratelimit.ts', 'src/config.ts'],
+          notes: 'Laid the groundwork this PR builds on; no incidents were reported after merge.',
+        },
+      ],
+    },
+    summary:
+      'Adds token-bucket rate limiting to the public API surface: the webhook now requires an Idempotency-Key header and shares a limiter with the other public routes. Two moderate risks surfaced — a config file worth a credential check and an N+1 query under load — with nothing blocking.',
+    merge_risk: 'medium',
+    review_focus: [
+      {
+        file: 'src/api/public/webhooks.ts',
+        start_line: 44,
+        end_line: 46,
+        reason: 'Confirm the Idempotency-Key header lookup is case-insensitive across proxies.',
+      },
+      {
+        file: 'src/api/public/webhooks.ts',
+        start_line: 48,
+        end_line: 49,
+        reason: 'Check that the rate-limit bucket key cannot collide across merchants.',
+      },
+    ],
+    file_summaries: [
+      {
+        path: 'src/middleware/ratelimit.ts',
+        summary:
+          'Adds a token-bucket rate limiter with a configurable key, limit and window, exposed for reuse across public routes.',
+      },
+      {
+        path: 'src/config.ts',
+        summary:
+          "Adds the rate limiter's key, limit and window settings to the shared config module.",
+      },
+    ],
+    degraded_reason: null,
+    truncated: false,
+    head_sha: pull.headSha,
+    model: DEFAULT_MODEL,
+    review_models: ['seed'],
+    tokens_in: 8210,
+    tokens_out: 960,
+    cost_usd: 0.0042,
   };
 }
 
@@ -415,6 +543,50 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       },
     ]);
   }
+
+  await db
+    .update(t.prFiles)
+    .set({ patch: DEMO_WEBHOOK_HUNK_ONLY_PATCH })
+    .where(and(eq(t.prFiles.prId, pr!.id), eq(t.prFiles.path, 'src/api/public/webhooks.ts')));
+
+  const demoBrief = demoBriefDocument(pr!);
+  const demoBriefValues = {
+    json: demoBrief,
+    headSha: demoBrief.head_sha,
+    model: demoBrief.model,
+    provider: DEFAULT_PROVIDER,
+    tokensIn: demoBrief.tokens_in,
+    tokensOut: demoBrief.tokens_out,
+    costUsd: demoBrief.cost_usd,
+    degradedReason: demoBrief.degraded_reason,
+    truncated: demoBrief.truncated,
+    generatedAt: DEMO_BRIEF_GENERATED_AT,
+  };
+  await db
+    .insert(t.prBrief)
+    .values({ prId: pr!.id, ...demoBriefValues })
+    .onConflictDoUpdate({ target: t.prBrief.prId, set: demoBriefValues });
+
+  const demoBriefGenerationValues = {
+    workspaceId,
+    status: 'done' as const,
+    provider: DEFAULT_PROVIDER,
+    model: demoBrief.model,
+    tokensIn: demoBrief.tokens_in,
+    tokensOut: demoBrief.tokens_out,
+    costUsd: demoBrief.cost_usd,
+    degradedReason: demoBrief.degraded_reason,
+    error: null,
+    startedAt: DEMO_BRIEF_STARTED_AT,
+    finishedAt: DEMO_BRIEF_FINISHED_AT,
+  };
+  await db
+    .insert(t.prBriefGenerations)
+    .values({ prId: pr!.id, ...demoBriefGenerationValues })
+    .onConflictDoUpdate({
+      target: t.prBriefGenerations.prId,
+      set: demoBriefGenerationValues,
+    });
 
   // ---- repo-intel: persistent index for acme/payments-api (Blast Radius) ----
   // rateLimit/bucketKey declared in the changed src/middleware/ratelimit.ts,

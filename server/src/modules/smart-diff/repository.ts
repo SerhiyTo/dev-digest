@@ -1,11 +1,15 @@
 import { and, eq, isNull } from 'drizzle-orm';
+import { PrBriefFileSummary } from '@devdigest/shared';
+import { z } from 'zod';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import { KNOWN_SEVERITIES } from './constants.js';
 import type {
+  BriefSummaries,
   PrFindings,
   SmartDiffFileRow,
   SmartDiffFindingRow,
+  SmartDiffPullSummary,
   SmartDiffStore,
 } from './ports.js';
 
@@ -14,12 +18,32 @@ const KNOWN_SEVERITY_SET: ReadonlySet<string> = new Set(KNOWN_SEVERITIES);
 export class SmartDiffRepository implements SmartDiffStore {
   constructor(private db: Db) {}
 
-  async getPullSummary(workspaceId: string, prId: string): Promise<{ id: string } | undefined> {
+  async getPullSummary(
+    workspaceId: string,
+    prId: string,
+  ): Promise<SmartDiffPullSummary | undefined> {
     const [row] = await this.db
-      .select({ id: t.pullRequests.id })
+      .select({ id: t.pullRequests.id, headSha: t.pullRequests.headSha })
       .from(t.pullRequests)
       .where(and(eq(t.pullRequests.workspaceId, workspaceId), eq(t.pullRequests.id, prId)));
     return row;
+  }
+
+  async getBriefSummaries(prId: string): Promise<BriefSummaries | undefined> {
+    const [row] = await this.db
+      .select({ headSha: t.prBrief.headSha, json: t.prBrief.json })
+      .from(t.prBrief)
+      .where(eq(t.prBrief.prId, prId));
+    if (!row) return undefined;
+
+    const parsed = z
+      .array(PrBriefFileSummary)
+      .safeParse((row.json as { file_summaries?: unknown } | null)?.file_summaries);
+
+    return {
+      headSha: row.headSha,
+      fileSummaries: parsed.success ? parsed.data : [],
+    };
   }
 
   async getFiles(prId: string): Promise<SmartDiffFileRow[]> {

@@ -13,6 +13,8 @@ export interface Step {
   label?: string;
   /** Optional extra check on the command's stdout (beyond its exit code). */
   assert?: { stdoutIncludes?: string };
+  /** Echo this step's stdout into the run log — for diagnosing a CI-only failure. */
+  debug?: boolean;
 }
 
 export interface Flow {

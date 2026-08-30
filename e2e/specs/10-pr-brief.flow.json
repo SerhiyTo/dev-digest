@@ -1,0 +1,23 @@
+{
+  "name": "PR brief renders the seeded cached read path",
+  "description": "From the app root, open the seeded PR #482 and, on the default Overview tab, assert the seeded PR brief's cached read path: the merge-risk band, the live blocker count on the review's counts badge, a seeded risk title from RiskList, a seeded review-focus row's reason, the generated-from footer's short head sha, the cost/token line, and the cross-model note naming both the brief's model and the review's model. Then open the Files changed tab and assert the seeded core file src/middleware/ratelimit.ts's pseudocode_summary text. Exercises GET /pulls/:id/brief and GET /pulls/:id/smart-diff purely as cached reads — no step presses Generate or Regenerate, matching e2e/README.md's no-LLM, no-Playwright, no-API-key rule (mirrors why 09-project-context never presses 'Compute intent'). NOTE — this flow deliberately does not assert the 'Review focus' or 'What this does' LABELS by their literal text: both are rendered through a span with CSS `textTransform: uppercase` (SectionLabel's title span; SmartDiffGroup's fileSummaryLabel), and a hermetic run proved `wait --text \"Review focus\"` times out against that rendered element — see e2e/INSIGHTS.md. Each label's presence is instead proven by its seeded row/summary CONTENT, which sits in a plain (non-transformed) span next to it, and is the more meaningful assertion regardless. NOTE — no step clicks src/middleware/ratelimit.ts's FileCard header: it renders already expanded, because it carries no findings (its file_summaries sibling in this seed is src/config.ts, not it) and its 84 changed lines sit under FileCard's AUTO_EXPAND_MAX_LINES (200) fallback threshold (`FileCard.tsx` defaultOpen useState), so shouldDefaultOpen (SmartDiffViewer/helpers.ts) returns undefined and the line-count fallback opens it on mount; a click here would toggle it CLOSED — see e2e/INSIGHTS.md. Assumes a freshly-seeded DB (see e2e/README.md).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR list data settles" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the seeded PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["wait", "--text", "Merge risk: Medium"], "label": "the strip renders the merge-risk band alongside the review's verdict (AC-83)" },
+    { "cmd": ["wait", "--text", "2 findings · 1 blockers"], "label": "the counts badge reads the live blocker count, not the stored run.blockers (AC-85)" },
+    { "cmd": ["wait", "--text", "Config module worth a credential audit before merge"], "label": "a seeded risk title renders from the cached brief" },
+    { "cmd": ["wait", "--text", "Confirm the Idempotency-Key header lookup is case-insensitive across proxies."], "label": "a seeded review-focus row's reason renders" },
+    { "cmd": ["wait", "--text", "from a1b2c3d"], "label": "the generated-from footer shows the short head sha" },
+    { "cmd": ["wait", "--text", "8,210 in · 960 out · $0.0042"], "label": "the cost and token line renders from the stored brief" },
+    { "cmd": ["wait", "--text", "This brief was written by deepseek/deepseek-v4-flash. The findings were written by seed. A different model may reach a different conclusion."], "label": "the cross-model note names both the brief and review models" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Files changed"], "label": "switch to the Files changed tab" },
+    { "cmd": ["wait", "--url", "tab=diff"], "label": "diff tab is active in the URL" },
+    { "cmd": ["wait", "--text", "src/middleware/ratelimit.ts"], "label": "the seeded core file is listed" },
+    { "cmd": ["wait", "--text", "Adds a token-bucket rate limiter with a configurable key, limit and window, exposed for reuse across public routes."], "label": "the seeded pseudocode summary text renders under the What this does label (card is open by default: no findings, 84 lines under the auto-expand threshold)" }
+  ]
+}

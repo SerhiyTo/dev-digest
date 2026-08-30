@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CiFailOn } from './knowledge.js';
 
 /**
  * Run trace. The ENTIRE trace of one run is persisted as a SINGLE
@@ -114,5 +115,6 @@ export const RunSummary = z.object({
   // findings that trip the agent's gate. Null on failed/cancelled runs.
   score: z.number().int().nullable(),
   blockers: z.number().int().nullable(),
+  ci_fail_on: CiFailOn.nullish(),
 });
 export type RunSummary = z.infer<typeof RunSummary>;

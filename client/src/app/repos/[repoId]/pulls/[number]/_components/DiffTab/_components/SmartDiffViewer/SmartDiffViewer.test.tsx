@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord, PrFile, SmartDiff } from "@devdigest/shared";
 import prReview from "../../../../../../../../../../messages/en/prReview.json";
 import shell from "../../../../../../../../../../messages/en/shell.json";
+import brief from "../../../../../../../../../../messages/en/brief.json";
 
 const usePrSmartDiff = vi.fn();
 vi.mock("@/lib/hooks/smart-diff", () => ({
@@ -86,7 +87,7 @@ function renderViewer(
   onFindingOpen?: (id: string) => void,
 ) {
   return render(
-    <NextIntlClientProvider locale="en" messages={{ prReview, shell }}>
+    <NextIntlClientProvider locale="en" messages={{ prReview, shell, brief }}>
       <div data-theme={theme}>
         <SmartDiffViewer
           prId="pr-1"
@@ -156,7 +157,7 @@ describe("SmartDiffViewer", () => {
     expect(isExpanded("src/big.ts")).toBe(false);
 
     rerender(
-      <NextIntlClientProvider locale="en" messages={{ prReview, shell }}>
+      <NextIntlClientProvider locale="en" messages={{ prReview, shell, brief }}>
         <div data-theme="dark">
           <SmartDiffViewer
             prId="pr-1"
@@ -340,5 +341,69 @@ describe("SmartDiffViewer", () => {
     ]);
 
     expect(screen.getByText("1 finding")).toBeInTheDocument();
+  });
+
+  it("renders no per-file summary when the smart diff carries none", () => {
+    usePrSmartDiff.mockReturnValue({ data: SMART_DIFF, isError: false });
+    renderViewer("dark");
+
+    expect(screen.queryByText("What this does")).not.toBeInTheDocument();
+    const headings = screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"));
+    expect(headings).toEqual(["Core logic", "Wiring", "Boilerplate"]);
+  });
+
+  it("renders the What this does summary under its own label only for the file that has one", () => {
+    const withSummary = {
+      ...SMART_DIFF,
+      groups: SMART_DIFF.groups.map((group) =>
+        group.role === "core"
+          ? {
+              ...group,
+              files: group.files.map((file) =>
+                file.path === "src/middleware/ratelimit.ts"
+                  ? { ...file, pseudocode_summary: "Adds a per-bucket rate limit key." }
+                  : file,
+              ),
+            }
+          : group,
+      ),
+    };
+    usePrSmartDiff.mockReturnValue({ data: withSummary, isError: false });
+    renderViewer("dark");
+
+    expect(screen.getByText("What this does")).toBeInTheDocument();
+    expect(screen.getByText("Adds a per-bucket rate limit key.")).toBeInTheDocument();
+    expect(screen.getAllByText("What this does")).toHaveLength(1);
+
+    const headings = screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"));
+    expect(headings).toEqual(["Core logic", "Wiring", "Boilerplate"]);
+  });
+
+  it("renders the What this does summary only while the file's card is expanded (AC-65)", () => {
+    const withSummary = {
+      ...SMART_DIFF,
+      groups: SMART_DIFF.groups.map((group) =>
+        group.role === "core"
+          ? {
+              ...group,
+              files: group.files.map((file) =>
+                file.path === "src/big.ts"
+                  ? { ...file, pseudocode_summary: "Rewrites the retry backoff loop." }
+                  : file,
+              ),
+            }
+          : group,
+      ),
+    };
+    usePrSmartDiff.mockReturnValue({ data: withSummary, isError: false });
+    renderViewer("dark");
+
+    expect(isExpanded("src/big.ts")).toBe(false);
+    expect(screen.queryByText("Rewrites the retry backoff loop.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("src/big.ts"));
+
+    expect(isExpanded("src/big.ts")).toBe(true);
+    expect(screen.getByText("Rewrites the retry backoff loop.")).toBeInTheDocument();
   });
 });

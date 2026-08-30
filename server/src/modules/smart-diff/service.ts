@@ -19,10 +19,18 @@ export class SmartDiffService {
     if (!pull) return undefined;
 
     const log = this.deps.logger;
-    const [files, live] = await Promise.all([
+    const [files, live, briefSummaries] = await Promise.all([
       this.deps.store.getFiles(prId),
       this.deps.store.getFindings(prId),
+      this.deps.store.getBriefSummaries(prId),
     ]);
+
+    const summaryByPath = new Map<string, string>();
+    if (briefSummaries && briefSummaries.headSha === pull.headSha) {
+      for (const fileSummary of briefSummaries.fileSummaries) {
+        summaryByPath.set(fileSummary.path, fileSummary.summary);
+      }
+    }
 
     const model = buildSmartDiffModel(files, live.findings);
     const { stats } = model;
@@ -67,7 +75,7 @@ export class SmartDiffService {
       );
     }
 
-    const dto = toSmartDiffDto(model);
+    const dto = toSmartDiffDto(model, summaryByPath);
     const parsed = SmartDiffResponse.safeParse(dto);
     if (!parsed.success) {
       log?.error(

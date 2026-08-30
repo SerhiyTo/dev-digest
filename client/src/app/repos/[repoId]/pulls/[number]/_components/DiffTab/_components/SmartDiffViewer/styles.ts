@@ -24,6 +24,27 @@ export const s = {
   } satisfies CSSProperties,
   groupCount: { fontSize: 12, color: "var(--text-muted)", flexShrink: 0 } satisfies CSSProperties,
   files: { display: "flex", flexDirection: "column", gap: 10 } satisfies CSSProperties,
+  fileEntry: { display: "flex", flexDirection: "column" } satisfies CSSProperties,
+  fileSummary: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    padding: "8px 14px",
+    borderLeft: "2px solid var(--border)",
+    background: "var(--bg-surface)",
+  } satisfies CSSProperties,
+  fileSummaryLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  fileSummaryText: {
+    fontSize: 12,
+    color: "var(--text-secondary)",
+    margin: 0,
+  } satisfies CSSProperties,
   splitBanner: {
     display: "flex",
     flexDirection: "column",
