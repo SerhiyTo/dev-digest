@@ -148,6 +148,20 @@
       "when": 1787513203718,
       "tag": "0020_square_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787534849153,
+      "tag": "0021_moaning_monster_badoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1787577086691,
+      "tag": "0022_bent_master_mold",
+      "breakpoints": true
     }
   ]
 }

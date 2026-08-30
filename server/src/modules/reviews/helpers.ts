@@ -4,7 +4,7 @@
  */
 import type { Finding, Intent } from '@devdigest/shared';
 import type { FindingRow, PullRow, ReviewRow } from './repository.js';
-import type { LinkedSkillRow } from '../agents/repository.js';
+import type { LinkedSkillRow } from '../../db/rows.js';
 
 // reduceReviews + sliceDiff live in @devdigest/reviewer-core (pure engine logic
 // shared with the CI runner); re-exported here for backward-compatible imports.

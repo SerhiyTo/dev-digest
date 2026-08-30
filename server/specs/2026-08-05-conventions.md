@@ -138,10 +138,12 @@ carry-over), `skill-body.ts` (slug/name/description/markdown generation).
 `helpers.ts` holds `toConventionDto` / `toScanStateDto`; `constants.ts` holds
 the tunables.
 
-The four pure modules are split out for the same reason `skills/` splits out
-`stats.ts` and `diff.ts`: they are algorithms, fully testable with no DB, no
-clone and no LLM, and they do not belong in a service whose other methods
-mutate rows. They are where nearly all the feature's test coverage lives.
+The four pure modules are split out for the same reason `skills/` splits its
+stats aggregation into `repository/stats.ts` and its diff helper into the
+shared `modules/_shared/diff.ts`: they are algorithms, fully testable with no
+DB, no clone and no LLM, and they do not belong in a service whose other
+methods mutate rows. They are where nearly all the feature's test coverage
+lives.
 
 Registered in `src/modules/index.ts`: one import + one entry in `modules`.
 

@@ -8,8 +8,8 @@ import {
   toSkillDto,
   toSkillVersionDto,
 } from './helpers.js';
-import { skillBodyPatch } from './diff.js';
-import { getSkillStats } from './stats.js';
+import { skillBodyPatch } from '../_shared/diff.js';
+import { getSkillStats } from './repository/stats.js';
 import { MANUAL_SKILL_SOURCE } from './constants.js';
 import { ValidationError } from '../../platform/errors.js';
 

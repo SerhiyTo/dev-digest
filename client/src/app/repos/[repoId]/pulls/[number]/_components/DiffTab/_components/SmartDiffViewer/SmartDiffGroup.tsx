@@ -35,6 +35,7 @@ export function SmartDiffGroup({
   onFindingOpen?: (findingId: string) => void;
 }) {
   const t = useTranslations("prReview");
+  const tBrief = useTranslations("brief");
 
   return (
     <section style={s.group} aria-label={t(LABEL_KEY[role])}>
@@ -50,28 +51,36 @@ export function SmartDiffGroup({
           const findings = findingsByPath.get(file.path) ?? [];
           const worst = worstFinding(findings);
           return (
-            <FileCard
-              key={file.path}
-              file={
-                prFile ?? {
-                  path: file.path,
-                  additions: file.additions,
-                  deletions: file.deletions,
-                  patch: null,
+            <div key={file.path} style={s.fileEntry}>
+              <FileCard
+                file={
+                  prFile ?? {
+                    path: file.path,
+                    additions: file.additions,
+                    deletions: file.deletions,
+                    patch: null,
+                  }
                 }
-              }
-              commenting={commenting}
-              findings={findings}
-              onFindingsClick={
-                worst && onFindingOpen ? () => onFindingOpen(worst.id) : undefined
-              }
-              onFindingOpen={onFindingOpen}
-              defaultOpen={shouldDefaultOpen(
-                role,
-                findings.length > 0,
-                (prFile?.patch ?? null) !== null,
-              )}
-            />
+                commenting={commenting}
+                findings={findings}
+                onFindingsClick={
+                  worst && onFindingOpen ? () => onFindingOpen(worst.id) : undefined
+                }
+                onFindingOpen={onFindingOpen}
+                defaultOpen={shouldDefaultOpen(
+                  role,
+                  findings.length > 0,
+                  (prFile?.patch ?? null) !== null,
+                )}
+              >
+                {file.pseudocode_summary && (
+                  <div style={s.fileSummary}>
+                    <span style={s.fileSummaryLabel}>{tBrief("fileSummary.label")}</span>
+                    <p style={s.fileSummaryText}>{file.pseudocode_summary}</p>
+                  </div>
+                )}
+              </FileCard>
+            </div>
           );
         })}
       </div>

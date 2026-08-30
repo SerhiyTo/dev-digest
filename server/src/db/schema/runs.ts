@@ -30,6 +30,7 @@ export const agentRuns = pgTable('agent_runs', {
   blockers: integer('blockers'),
   /** LLM cost in USD (OpenRouter usage.cost, else PriceBook estimate); null when unknown. */
   costUsd: doublePrecision('cost_usd'),
+  ciFailOn: text('ci_fail_on', { enum: ['never', 'critical', 'warning', 'any'] }),
 });
 
 /** Whole trace of one run as a SINGLE jsonb document. */
