@@ -46,7 +46,7 @@
     { "cmd": ["wait", "--text", "Specs read"], "label": "the Configuration section lists what the run read" },
     { "cmd": ["wait", "--text", "specs/idempotency-keys.md"], "label": "the injected path is listed under Specs read" },
     { "cmd": ["find", "text", "Prompt assembly", "click"], "label": "expand the collapsed Prompt assembly section" },
-    { "cmd": ["wait", 500], "label": "let the section's open-state toggle settle before asserting on it" },
+    { "cmd": ["wait", "500"], "label": "let the section's open-state toggle settle before asserting on it" },
     { "cmd": ["wait", "--text", "Project context — attached specs (untrusted)"], "label": "the project-context prompt segment is labelled" },
     { "cmd": ["find", "text", "Project context — attached specs (untrusted)", "click"], "label": "expand the collapsed project-context segment" },
     { "cmd": ["wait", "--text", "An idempotency key is valid for exactly 24 hours and is scoped to one merchant."], "label": "the segment carries the injected document body as sent" }
