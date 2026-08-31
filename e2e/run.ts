@@ -18,7 +18,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdirSync, readFileSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -93,6 +93,8 @@ async function runFlow(file: string, flow: Flow): Promise<FlowResult> {
       // Best-effort failure screenshot for the artifact upload.
       mkdirSync(RESULTS_DIR, { recursive: true });
       await ab(["screenshot", join(RESULTS_DIR, `${id}-fail.png`)]).catch(() => {});
+      const tree = await ab(["snapshot"]).catch(() => "");
+      if (tree) writeFileSync(join(RESULTS_DIR, `${id}-fail.snapshot.txt`), tree);
       break;
     }
   }
