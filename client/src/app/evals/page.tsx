@@ -35,7 +35,7 @@ export default function EvalsPage() {
   const suiteRuns = useEvalSuiteRunsForAgents(agentIds);
   const recentRuns = useMemo(() => recentRunsAcrossAgents(suiteRuns.data), [suiteRuns.data]);
 
-  const isLoading = dashboardsLoading || agentsLoading || suiteRuns.isLoading;
+  const isLoading = dashboardsLoading || agentsLoading;
   const isError = dashboardsError || agentsError;
 
   const agentNameFor = (agentId: string) => agents?.find((a) => a.id === agentId)?.name ?? agentId;
@@ -92,9 +92,11 @@ export default function EvalsPage() {
 
             <section style={s.section}>
               <SectionLabel icon="History">{t("dashboard.recentRunsAllAgents")}</SectionLabel>
-              {suiteRuns.isError ? (
+              {suiteRuns.isLoading && <Skeleton height={220} />}
+              {!suiteRuns.isLoading && suiteRuns.isError && (
                 <ErrorState onRetry={() => suiteRuns.refetch()} />
-              ) : (
+              )}
+              {!suiteRuns.isLoading && !suiteRuns.isError && (
                 <EvalRecentRunsTable runs={recentRuns} agentNameFor={agentNameFor} />
               )}
             </section>

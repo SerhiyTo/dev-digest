@@ -50,6 +50,13 @@ async function ab(args: string[]): Promise<string> {
   return stdout ?? "";
 }
 
+function commandFailureDetail(e: unknown): string {
+  const err = e as Error & { stderr?: string; stdout?: string };
+  const head = (err.message ?? String(e)).split("\n")[0];
+  const reason = (err.stderr ?? "").trim() || (err.stdout ?? "").trim();
+  return reason ? `${head} — ${reason.replace(/\s+/g, " ").slice(0, 600)}` : head;
+}
+
 function loadFlows(): { file: string; flow: Flow }[] {
   return readdirSync(SPECS_DIR)
     .filter((f) => f.endsWith(".flow.json"))
@@ -80,7 +87,7 @@ async function runFlow(file: string, flow: Flow): Promise<FlowResult> {
       console.log(`   ✓ ${label}`);
       if (step.debug) console.log(`     ↳ ${stdout.trim().slice(0, 2000)}`);
     } catch (e) {
-      const msg = (e as Error).message.split("\n")[0];
+      const msg = commandFailureDetail(e);
       steps.push({ label, ok: false, detail: msg });
       console.log(`   ✗ ${label} — ${msg}`);
       // Best-effort failure screenshot for the artifact upload.
