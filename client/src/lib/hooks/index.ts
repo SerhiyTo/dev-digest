@@ -10,3 +10,4 @@ export * from "./smart-diff";
 export * from "./trace";
 export * from "./repo-intel";
 export * from "./onboarding";
+export * from "./evals";

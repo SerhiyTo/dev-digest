@@ -10,3 +10,12 @@ export function relativeTime(iso: string | null | undefined): string {
   if (h < 24) return `${h}h`;
   return `${Math.round(h / 24)}d`;
 }
+
+export function absoluteTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return `${date} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}

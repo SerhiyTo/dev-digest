@@ -41,6 +41,9 @@ export DATABASE_URL="postgres://${PG_USER}:${PG_PASS}@127.0.0.1:${PG_PORT}/${PG_
 export API_PORT WEB_PORT
 export NEXT_PUBLIC_API_BASE="http://localhost:${API_PORT}"
 export E2E_BASE_URL="http://localhost:${WEB_PORT}"
+E2E_SECRETS_DIR="$(mktemp -d)"
+printf '{}' > "${E2E_SECRETS_DIR}/secrets.json"
+export DEVDIGEST_SECRETS_PATH="${E2E_SECRETS_DIR}/secrets.json"
 
 log()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }

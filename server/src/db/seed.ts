@@ -25,6 +25,7 @@ import {
   API_CONTRACT_COMPAT_BODY,
 } from './seed-skills.js';
 import { INDEXER_VERSION } from '../modules/repo-intel/constants.js';
+import { seedEvalCases, EVAL_CASE_SETS_BY_AGENT_NAME } from './seed-evals.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -70,8 +71,14 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * opener renders from agent_runs — the seeded review alone puts nothing there.
  * The trace is built through the real assembler, so its bytes match a live run.
  *
- * Remaining course lessons populate the other tables (memory, eval, …) once
- * their features are built — they start empty here.
+ * Also at least 8 eval cases (`seed-evals.ts`) owned by the Security Reviewer
+ * agent, so `pnpm verify:l06` and the eval dashboard have a runnable regression
+ * set without an LLM call. One PR #482 finding is marked accepted, one
+ * dismissed, and the finding seeded on PR #415 is left undecided, giving every
+ * finding action state a deterministic starting point.
+ *
+ * Remaining course lessons populate the other tables (memory, …) once their
+ * features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -163,6 +170,9 @@ export const DEMO_RUN_DOC_PATH = 'specs/idempotency-keys.md';
  */
 const DEMO_RUN_RAN_AT = new Date('2026-08-20T09:15:00Z');
 
+const DEMO_FINDING_ACCEPTED_AT = new Date('2026-08-25T10:00:00Z');
+const DEMO_FINDING_DISMISSED_AT = new Date('2026-08-25T10:05:00Z');
+
 const DEMO_RUN_DIFF = `diff --git a/src/api/public/webhooks.ts b/src/api/public/webhooks.ts
 --- a/src/api/public/webhooks.ts
 +++ b/src/api/public/webhooks.ts
@@ -180,6 +190,48 @@ const DEMO_RUN_DIFF = `diff --git a/src/api/public/webhooks.ts b/src/api/public/
 `;
 
 const DEMO_WEBHOOK_HUNK_ONLY_PATCH = DEMO_RUN_DIFF.split('\n').slice(3).join('\n');
+
+const DEMO_CONFIG_STRIPE_KEY_PATCH = `@@ -1,15 +1,15 @@
+ import dotenv from 'dotenv';
+
+ dotenv.config();
+
+ export const config = {
+   port: Number(process.env.PORT) || 3000,
+   env: process.env.NODE_ENV || 'development',
+   dbHost: process.env.DB_HOST,
+   dbPort: Number(process.env.DB_PORT) || 5432,
+   redisUrl: process.env.REDIS_URL,
+   webhookSigningSecret: process.env.WEBHOOK_SIGNING_SECRET,
+-  stripeSecretKey: process.env.STRIPE_SECRET_KEY,
++  stripeSecretKey: 'sk_live_xxx',
+   rateLimitWindowMs: 60_000,
+   rateLimitMax: 100,
+ };`;
+
+const DEMO_USERS_N_PLUS_ONE_PATCH = `@@ -40,14 +40,18 @@
+ export async function listUsers(req, res) {
+   const { ids } = req.query;
+   if (!Array.isArray(ids)) {
+     throw new Error('ids must be an array');
+   }
+-  const users = await db.query(
+-    'SELECT * FROM users WHERE id = ANY($1)',
+-    [ids],
+-  );
++  const users = [];
++  for (const id of ids) {
++    const [user] = await db.query(
++      'SELECT * FROM users WHERE id = $1',
++      [id],
++    );
++    users.push(user);
++  }
+   return res.json(users);
+ }
+
+ export async function getUserProfile(id) {
+   return db.query('SELECT * FROM users WHERE id = $1', [id]);`;
 
 const DEMO_RUN_RAW_OUTPUT = `{
   "verdict": "approve",
@@ -388,6 +440,44 @@ async function writeDemoClone(cloneDir: string): Promise<string> {
   return clonePath;
 }
 
+/**
+ * Seeded agents are inserted with a bare `db.insert(t.agents)` rather than
+ * through `AgentsRepository.insert()`, so they never get the version-1
+ * `agent_versions` snapshot that `snapshotVersion` writes on a real create.
+ * Backfill it here, select-then-insert on `(agent_id, version)` so a second
+ * seed run — or a database seeded before this fix existed — converges rather
+ * than duplicating. `skills` is always `[]`: a real version-1 snapshot is
+ * written immediately after insert, before any skill is linked, and linking a
+ * skill afterwards does not bump the version or re-snapshot.
+ */
+async function ensureInitialAgentVersionSnapshot(
+  db: Db,
+  agent: typeof t.agents.$inferSelect,
+): Promise<void> {
+  const [existingSnapshot] = await db
+    .select({ agentId: t.agentVersions.agentId })
+    .from(t.agentVersions)
+    .where(and(eq(t.agentVersions.agentId, agent.id), eq(t.agentVersions.version, agent.version)));
+  if (existingSnapshot) return;
+  await db
+    .insert(t.agentVersions)
+    .values({
+      agentId: agent.id,
+      version: agent.version,
+      configJson: {
+        provider: agent.provider,
+        model: agent.model,
+        system_prompt: agent.systemPrompt,
+        output_schema: agent.outputSchema,
+        strategy: agent.strategy,
+        ci_fail_on: agent.ciFailOn,
+        repo_intel: agent.repoIntel,
+        skills: [],
+      },
+    })
+    .onConflictDoNothing();
+}
+
 export async function seed(db: Db): Promise<{ workspaceId: string; userId: string }> {
   // ---- workspace + user (no-auth defaults) ----
   let [ws] = await db
@@ -544,10 +634,45 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
+  const [pr482Review] = await db
+    .select({ id: t.reviews.id })
+    .from(t.reviews)
+    .where(and(eq(t.reviews.prId, pr!.id), eq(t.reviews.kind, 'review')));
+  if (pr482Review) {
+    await db
+      .update(t.findings)
+      .set({ acceptedAt: DEMO_FINDING_ACCEPTED_AT })
+      .where(
+        and(
+          eq(t.findings.reviewId, pr482Review.id),
+          eq(t.findings.title, 'Hardcoded Stripe secret key in commit'),
+        ),
+      );
+    await db
+      .update(t.findings)
+      .set({ dismissedAt: DEMO_FINDING_DISMISSED_AT })
+      .where(
+        and(
+          eq(t.findings.reviewId, pr482Review.id),
+          eq(t.findings.title, 'N+1 query in user list endpoint'),
+        ),
+      );
+  }
+
   await db
     .update(t.prFiles)
     .set({ patch: DEMO_WEBHOOK_HUNK_ONLY_PATCH })
     .where(and(eq(t.prFiles.prId, pr!.id), eq(t.prFiles.path, 'src/api/public/webhooks.ts')));
+
+  await db
+    .update(t.prFiles)
+    .set({ patch: DEMO_CONFIG_STRIPE_KEY_PATCH })
+    .where(and(eq(t.prFiles.prId, pr!.id), eq(t.prFiles.path, 'src/config.ts')));
+
+  await db
+    .update(t.prFiles)
+    .set({ patch: DEMO_USERS_N_PLUS_ONE_PATCH })
+    .where(and(eq(t.prFiles.prId, pr!.id), eq(t.prFiles.path, 'src/api/users.ts')));
 
   const demoBrief = demoBriefDocument(pr!);
   const demoBriefValues = {
@@ -841,6 +966,46 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
+  const [priorUndecidedFinding] = await db
+    .select({ id: t.findings.id })
+    .from(t.findings)
+    .innerJoin(t.reviews, eq(t.reviews.id, t.findings.reviewId))
+    .where(
+      and(
+        eq(t.reviews.prId, priorPr!.id),
+        eq(t.findings.title, 'Rate-limit bucket key omits repo-level scoping'),
+      ),
+    );
+  if (!priorUndecidedFinding) {
+    const [priorReview] = await db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: priorPr!.id,
+        kind: 'review',
+        verdict: 'comment',
+        summary:
+          'Scaffolding looks reasonable; one item worth a second look before it lands elsewhere.',
+        score: 78,
+        model: 'seed',
+      })
+      .returning();
+
+    await db.insert(t.findings).values({
+      reviewId: priorReview!.id,
+      file: 'src/middleware/index.ts',
+      startLine: 12,
+      endLine: 12,
+      severity: 'WARNING',
+      category: 'security',
+      title: 'Rate-limit bucket key omits repo-level scoping',
+      rationale:
+        'The bucket key is derived from the merchant header alone, so two repos behind the same merchant share one bucket.',
+      suggestion: 'Fold the repo id into the bucket key alongside the merchant id.',
+      confidence: 0.72,
+    });
+  }
+
   // ---- base skills (L02: reusable rubric/convention blocks) ----
   // Bodies live in ./seed-skills.ts (mirrored in docs/agent-prompts/skills/*.md).
   // `mock-overuse-gate` is intentionally absent — imported live through the UI.
@@ -1059,6 +1224,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     if (!existing) {
       [existing] = await db.insert(t.agents).values(agentValues).returning();
     }
+    await ensureInitialAgentVersionSnapshot(db, existing!);
     agentIdByName.set(agentValues.name, existing!.id);
     if (skillLinks) {
       for (const link of skillLinks) {
@@ -1070,6 +1236,20 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
           .onConflictDoNothing();
       }
     }
+  }
+
+  const securityReviewerId = agentIdByName.get(DEMO_RUN_AGENT_NAME);
+  if (securityReviewerId) {
+    await db
+      .update(t.reviews)
+      .set({ agentId: securityReviewerId })
+      .where(and(eq(t.reviews.prId, pr!.id), eq(t.reviews.kind, 'review')));
+  }
+
+  for (const [agentName, cases] of EVAL_CASE_SETS_BY_AGENT_NAME) {
+    const evalAgentId = agentIdByName.get(agentName);
+    if (!evalAgentId) continue;
+    await seedEvalCases(db, { workspaceId, agentId: evalAgentId, cases });
   }
 
   // ---- completed fixture run for PR #482, with its project-context trace ----

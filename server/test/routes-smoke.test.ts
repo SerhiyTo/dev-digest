@@ -123,6 +123,31 @@ describe('routes (no DB)', () => {
     await app.close();
   });
 
+  it('registers the eval module in the route table', async () => {
+    const app = await buildApp({ config });
+    await app.ready();
+    const routes = [
+      { method: 'POST' as const, url: '/findings/:id/eval-case' },
+      { method: 'POST' as const, url: '/agents/:id/eval-cases' },
+      { method: 'GET' as const, url: '/agents/:id/eval-cases' },
+      { method: 'GET' as const, url: '/eval-cases/:id' },
+      { method: 'PATCH' as const, url: '/eval-cases/:id' },
+      { method: 'DELETE' as const, url: '/eval-cases/:id' },
+      { method: 'POST' as const, url: '/eval-cases/:id/run' },
+      { method: 'POST' as const, url: '/agents/:id/eval-runs/start' },
+      { method: 'POST' as const, url: '/eval-suite-runs/:id/cancel' },
+      { method: 'GET' as const, url: '/eval-suite-runs/:id' },
+      { method: 'GET' as const, url: '/agents/:id/eval-runs' },
+      { method: 'GET' as const, url: '/agents/:id/eval-runs/compare' },
+      { method: 'GET' as const, url: '/agents/:id/eval-dashboard' },
+      { method: 'GET' as const, url: '/evals' },
+    ];
+    for (const route of routes) {
+      expect(app.hasRoute(route), `${route.method} ${route.url}`).toBe(true);
+    }
+    await app.close();
+  });
+
   it('repoIdKey buckets two casings of the same uuid together and rejects a raw non-uuid id', () => {
     const reqFor = (id: unknown) => ({ params: { id } }) as FastifyRequest;
     const lower = repoIdKey(reqFor('a1b2c3d4-e5f6-4789-a012-3456789abcde'));

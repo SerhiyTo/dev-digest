@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { Verdict, Finding } from './findings.js';
-import { EvalRun, EvalOwnerKind, Conformance, Provider, CiFailOn } from './knowledge.js';
+import {
+  EvalRun,
+  EvalOwnerKind,
+  EvalExpectation,
+  EvalExpectationKind,
+  Conformance,
+  Provider,
+  CiFailOn,
+} from './knowledge.js';
 import { ProjectContextPayload } from './context.js';
 
 /**
@@ -25,7 +33,7 @@ export const EvalCaseInput = z.object({
   input_diff: z.string().default(''),
   input_files: z.unknown().nullish(),
   input_meta: z.unknown().nullish(),
-  expected_output: z.unknown(),
+  expected_output: z.array(EvalExpectation),
   notes: z.string().nullish(),
 });
 export type EvalCaseInput = z.infer<typeof EvalCaseInput>;
@@ -35,6 +43,8 @@ export const EvalRunRecord = z.object({
   id: z.string(),
   case_id: z.string(),
   case_name: z.string().nullish(),
+  suite_run_id: z.string().nullable(),
+  agent_version: z.number().int().nullable(),
   ran_at: z.string(),
   actual_output: z.unknown(),
   pass: z.boolean().nullable(),
@@ -45,6 +55,64 @@ export const EvalRunRecord = z.object({
   cost_usd: z.number().nullable(),
 });
 export type EvalRunRecord = z.infer<typeof EvalRunRecord>;
+
+export const EvalCaseRecord = z.object({
+  id: z.string(),
+  owner_kind: EvalOwnerKind,
+  owner_id: z.string(),
+  name: z.string(),
+  input_diff: z.string(),
+  input_files: z.unknown(),
+  input_meta: z.unknown(),
+  expected_output: z.array(EvalExpectation),
+  notes: z.string().nullish(),
+  source_finding_id: z.string().nullable(),
+  expectation_kinds: z.array(EvalExpectationKind),
+  last_run_at: z.string().nullable(),
+  last_run_pass: z.boolean().nullable(),
+  created_at: z.string(),
+});
+export type EvalCaseRecord = z.infer<typeof EvalCaseRecord>;
+
+export const EvalSuiteRunStatus = z.enum(['running', 'done', 'cancelled', 'failed']);
+export type EvalSuiteRunStatus = z.infer<typeof EvalSuiteRunStatus>;
+
+export const EvalSuiteRunRecord = z.object({
+  id: z.string(),
+  agent_id: z.string(),
+  agent_version: z.number().int(),
+  status: EvalSuiteRunStatus,
+  started_at: z.string(),
+  finished_at: z.string().nullable(),
+  cases_total: z.number().int().nullable(),
+  cases_passed: z.number().int().nullable(),
+  recall: z.number().min(0).max(1).nullable(),
+  precision: z.number().min(0).max(1).nullable(),
+  citation_accuracy: z.number().min(0).max(1).nullable(),
+  cost_usd: z.number().nullable(),
+  duration_ms: z.number().int().nullable(),
+});
+export type EvalSuiteRunRecord = z.infer<typeof EvalSuiteRunRecord>;
+
+export const EvalMetricDiff = z.object({
+  older: z.number().nullable(),
+  newer: z.number().nullable(),
+  diff: z.number().nullable(),
+});
+export type EvalMetricDiff = z.infer<typeof EvalMetricDiff>;
+
+export const EvalCompare = z.object({
+  older_run: EvalSuiteRunRecord,
+  newer_run: EvalSuiteRunRecord,
+  recall: EvalMetricDiff,
+  precision: EvalMetricDiff,
+  citation_accuracy: EvalMetricDiff,
+  cost_usd: EvalMetricDiff,
+  same_version: z.boolean(),
+  prompt_diff: z.string().nullable(),
+  prompt_diff_unavailable: z.boolean(),
+});
+export type EvalCompare = z.infer<typeof EvalCompare>;
 
 /** Result of running a single case: the metrics (EvalRun) + the persisted row id. */
 export const EvalRunResult = z.object({
@@ -57,9 +125,9 @@ export type EvalRunResult = z.infer<typeof EvalRunResult>;
 /** One point on the dashboard trend (per run, chronological). */
 export const EvalTrendPoint = z.object({
   ran_at: z.string(),
-  recall: z.number(),
-  precision: z.number(),
-  citation_accuracy: z.number(),
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
   pass_rate: z.number(),
   cost_usd: z.number().nullable(),
 });
@@ -71,17 +139,17 @@ export const EvalDashboard = z.object({
   owner_id: z.string().nullable(),
   cases_total: z.number().int(),
   current: z.object({
-    recall: z.number(),
-    precision: z.number(),
-    citation_accuracy: z.number(),
-    traces_passed: z.number().int(),
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
+    traces_passed: z.number().int().nullable(),
     traces_total: z.number().int(),
     cost_usd: z.number().nullable(),
   }),
   delta: z.object({
-    recall: z.number(),
-    precision: z.number(),
-    citation_accuracy: z.number(),
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
   }),
   trend: z.array(EvalTrendPoint),
   recent_runs: z.array(EvalRunRecord),

@@ -4,9 +4,19 @@ import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord, ReviewRecord, Severity } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
 vi.mock("../../../../../../../lib/hooks/reviews", () => ({
   useFindingAction: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteReview: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock("../../../../../../../lib/hooks/evals", () => ({
+  useCreateEvalCaseFromFinding: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ case: { id: "case-1", name: "Case" } }),
+  }),
 }));
 
 import { ReviewRunAccordion } from "./ReviewRunAccordion";

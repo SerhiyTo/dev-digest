@@ -57,3 +57,14 @@ export {
 // The single OpenAI-compatible structured provider (OpenRouter), shared by the
 // CI runner and the server's openrouter path. Owns session grouping + guards.
 export { OpenRouterProvider, type OpenRouterProviderOptions } from './llm/openrouter.js';
+
+export {
+  scoreEvalCase,
+  aggregateEvalRun,
+  type EvalExpectationKind,
+  type EvalExpectation,
+  type EvalExpectationOutcome,
+  type EvalCaseScore,
+  type EvalRunAggregate,
+} from './eval/score.js';
+export { EVAL_LINE_TOLERANCE } from './eval/constants.js';

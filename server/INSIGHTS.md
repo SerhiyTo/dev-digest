@@ -8,6 +8,197 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Works
 <!-- Approaches, patterns, and solutions that have proven effective here -->
+- 2026-08-30: `parseUnifiedDiff` (`src/adapters/git/diff-parser.ts`) never
+  inspects hunk-line CONTENT beyond its leading character — classification is
+  purely `startsWith('+')` / `startsWith('-')` / else-context, and it does not
+  validate that removed/added text is syntactically real code. Building a
+  hand-written seed fixture patch (e.g. `src/db/seed.ts`
+  `DEMO_CONFIG_STRIPE_KEY_PATCH` / `DEMO_USERS_N_PLUS_ONE_PATCH`, added so the
+  seeded PR #482 accepted/dismissed findings on `src/config.ts` line 12 and
+  `src/api/users.ts` lines 45-52 have a snapshot-able diff) only requires
+  getting the CONTEXT/ADDED/REMOVED line COUNTS right relative to the `@@
+  -oldStart,oldLines +newStart,newLines @@` header — the new-side line number a
+  finding cites is `newStart + (context+added lines before it)`, counting only
+  context and added lines (removed lines never advance the new-side cursor).
+  Verified by literally running the parser against the drafted patch before
+  committing it, rather than hand-counting under time pressure (evidence:
+  server/src/adapters/git/diff-parser.ts `parseUnifiedDiff`; server/src/db/seed.ts
+  `DEMO_CONFIG_STRIPE_KEY_PATCH`, `DEMO_USERS_N_PLUS_ONE_PATCH`)
+- 2026-08-30: T24 (eval-prompt-sensitivity.it.test.ts) — a suite run against a
+  freshly SEEDED agent's untouched version fails every case with "agent
+  version N snapshot not found", because `seed.ts` inserts agent rows directly
+  (`db.insert(t.agents).values(...)`) rather than through
+  `AgentsRepository.create()`, so no `agent_versions` row is ever written for
+  version 1 — only a later `agents.update()` call snapshots one (repository.ts
+  `snapshotVersion`, called from `create()` and from `update()` when
+  `isConfigChange` is true, never from the seed path). A suite run at the
+  seeded version therefore always hits `EvalRunner.executeCase`'s
+  `if (!snapshot) throw ...` branch and every case scores as a zero-match
+  failure — recall 0, precision null — regardless of what the mock LLM would
+  have returned, which silently defeats any "run at the seeded baseline, then
+  compare" test. Fix used here, confined to the test file (not `seed.ts`,
+  which no task in the eval-pipeline plan lists as this test's own file):
+  insert the missing version-1 `agent_versions` row directly in `beforeAll`,
+  mirroring the exact `configJson` shape `snapshotVersion` writes (`provider`,
+  `model`, `system_prompt`, `output_schema`, `strategy`, `ci_fail_on`,
+  `repo_intel`, `skills`) read back by `EvalRepository.getVersionSnapshot`
+  (evidence: server/src/db/seed.ts agent inserts; server/src/modules/agents/
+  repository.ts `snapshotVersion`, `update`; server/src/modules/eval/
+  repository.ts `getVersionSnapshot`; server/src/modules/eval/runner.ts
+  `executeCase`; server/test/eval-prompt-sensitivity.it.test.ts
+  `snapshotInitialVersionTheSeedNeverWrote`)
+- 2026-08-30: T11 (eval/runner.ts) — AC-57's "apply the grounding gate on
+  exactly the terms a review applies it" needed ZERO extra code: calling
+  `reviewPullRequest` (the same `@devdigest/reviewer-core` entry point
+  `reviews/run-executor.ts` calls) already runs `groundFindings` internally
+  before returning `outcome.review.findings`, so the eval runner never touches
+  `grounding.ts` directly. The one thing this DOES require: feed the runner a
+  real `UnifiedDiff` parsed from the case's snapshotted `input_diff` via
+  `parseUnifiedDiff` (`adapters/git/diff-parser.ts`) — grounding is diff-hunk
+  relative, so an eval case's diff must carry a `diff --git a/... b/...` header
+  line (exactly what `repository.ts`'s `unifiedDiffForFile` already produces)
+  or `parseUnifiedDiff` silently returns zero files and every finding gets
+  dropped as ungrounded (evidence: server/src/modules/eval/runner.ts
+  `executeCase`; reviewer-core/src/review/run.ts:198-199 `groundFindings`)
+- 2026-08-30: T11 (eval/service.ts) — AC-10 requires 400 for an invalid
+  `expected_output`, but this repo's `app.ts` error handler maps ANY Fastify
+  schema-validation failure (a route declaring `schema: { body: SomeZodSchema }`)
+  to 422, not 400 (`hasZodFastifySchemaValidationErrors` branch). The eval
+  case create/update routes therefore do NOT declare `schema.body` at all —
+  `req.body` stays `unknown` and the service calls `EvalCaseInput.omit(...).
+  safeParse(body)` itself, throwing `AppError('validation_error', ..., 400)` on
+  failure. This is a deliberate departure from the `RunRequest.parse(req.body)`
+  pattern in `reviews/routes.ts:32` (which relies on the generic ZodError→422
+  branch) — that pattern is wrong for any route an AC pins to 400 (evidence:
+  server/src/modules/eval/routes.ts `POST /agents/:id/eval-cases`,
+  `PATCH /eval-cases/:id`; server/src/app.ts:118-127 the 422 branch)
+- 2026-08-30: correction/resolution to the `eval_cases` `created_at` gap flagged
+  below — added `createdAt: now()` (the shared `_shared.ts` helper every other
+  schema file already uses) to `evalCases`, which is purely additive (`ALTER
+  TABLE "eval_cases" ADD COLUMN "created_at" timestamptz DEFAULT now() NOT
+  NULL`) and needed no `db:rows.ts` edit: `EvalCaseRow` is
+  `typeof t.evalCases.$inferSelect`, so it picked up the new column
+  structurally. Threading it into the port only touched two places:
+  `StoredEvalCase.createdAt: string` in `ports.ts`, and
+  `mapEvalCaseRow`'s return in `repository.ts` (`row.createdAt.toISOString()`)
+  — `toEvalCaseRecord` in `helpers.ts` already declared `createdAt` as
+  required, so no change was needed there (evidence:
+  server/src/db/schema/eval.ts `evalCases.createdAt`;
+  server/src/db/migrations/0024_handy_vargas.sql;
+  server/src/modules/eval/ports.ts `StoredEvalCase`;
+  server/src/modules/eval/repository.ts `mapEvalCaseRow`)
+- 2026-08-30: a child table with no `workspace_id` column of its own
+  (`eval_runs`, scoped only through `eval_cases.workspace_id`) cannot have its
+  `INSERT` "take a workspace id" by trusting the caller — the enforcement has
+  to be a query. `EvalRepository.insertRun` wraps a `SELECT ... FROM
+  eval_cases WHERE workspace_id = $1 AND id = $2` and the actual insert in one
+  `db.transaction`, throwing `NotFoundError` (`platform/errors.ts`, already
+  imported by other modules' `service.ts`/`routes.ts` — nothing in the
+  dependency-cruiser ruleset restricts a `repository.ts` from importing it,
+  only `platform/container.ts` is gated) when the case does not belong to that
+  workspace, rather than inserting first and hoping the caller already
+  checked. Same shape for `AgentConfigSource.getVersionSnapshot`:
+  `agent_versions` (PK `(agent_id, version)`) ALSO carries no `workspace_id`,
+  so scoping it means an `innerJoin` to `agents` and filtering on
+  `agents.workspace_id`, not a `WHERE` on `agent_versions` alone (evidence:
+  server/src/modules/eval/repository.ts `insertRun`, `getVersionSnapshot`;
+  server/src/db/schema/agents.ts `agentVersions` has no `workspaceId` column)
+- 2026-08-30: T10 (seed-evals.ts) — before setting `dismissed_at`/`accepted_at`
+  on a SEEDED finding, check which client helper actually drives the e2e text
+  it's asserted against. `composeBlockingReasons`
+  (`client/.../BriefVerdictStrip/helpers.ts`) and `countActiveBySeverity`
+  (`client/src/lib/severity.ts`) both filter `!f.dismissed_at` but NEVER filter
+  on `accepted_at` — so dismissing PR #482's CRITICAL "Hardcoded Stripe secret
+  key" finding would have silently dropped `e2e/specs/10-pr-brief.flow.json`'s
+  asserted "1 blockers" to 0, while marking that same finding ACCEPTED changes
+  nothing any flow checks. `findings.length` (both `ReviewRunAccordion` and
+  `BriefVerdictStrip.findingsCount`) never filters at all, so the raw count
+  text ("2 findings") is safe regardless of action state. Net rule: dismiss
+  only a non-CRITICAL (or already-excluded-from-the-gate) finding on a PR whose
+  count/blocker text an e2e flow asserts; accept is always safe (evidence:
+  client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/_components/BriefVerdictStrip/helpers.ts
+  `composeBlockingReasons`; client/src/lib/severity.ts `countActiveBySeverity`;
+  e2e/specs/10-pr-brief.flow.json; e2e/specs/04-pr-findings.flow.json)
+- 2026-08-30: T10 (seed-evals.ts) — a value that must be named identically in
+  two files (SPEC-04's AC-65: "name that one prompt line so it can be removed
+  mechanically") is safer INTERPOLATED than duplicated. `seed-prompts.ts`
+  exports `SECURITY_REVIEWER_SSRF_LINE` and the `SECURITY_REVIEWER_PROMPT`
+  template literal embeds it as `${SECURITY_REVIEWER_SSRF_LINE}` instead of
+  the literal text, so the exported constant and the rendered prompt can never
+  drift apart; `seed-evals.ts` then imports and re-exports the same constant
+  rather than re-typing the line, for a future task (T24) to import and strip
+  from the prompt (evidence: server/src/db/seed-prompts.ts
+  `SECURITY_REVIEWER_SSRF_LINE`; server/src/db/seed-evals.ts re-export)
+- 2026-08-30: T8 (eval/ports.ts, eval/repository.ts) — when one `Store`/`Source`
+  port per entity (`EvalCaseStore`, `EvalRunStore`, `EvalSuiteRunStore`) is
+  implemented by a SINGLE repository class (the `BriefRepository implements
+  BriefStore, BriefGenerationStore, ...` pattern), a same-named method on two
+  of those interfaces with a different return type (`getById(workspaceId, id):
+  Promise<StoredEvalCase | undefined>` vs `...Promise<StoredEvalSuiteRun |
+  undefined>`) is a real conflict, not just a style question — TS cannot let
+  one class method satisfy both signatures without an overload, and the
+  overload has to be resolved by a runtime type guard on the argument, which is
+  worse than just naming the methods `getCaseById`/`getRunById`/
+  `getSuiteRunById` from the start. Grep every method name across ALL
+  interfaces a single implementer class will carry before writing them, not
+  after the first `insert`/`getById` collision (evidence:
+  server/src/modules/eval/ports.ts `EvalCaseStore.getCaseById` /
+  `EvalRunStore.getRunById` / `EvalSuiteRunStore.getSuiteRunById`)
+- 2026-08-30: T9 (eval/domain.ts, eval/helpers.ts) confirms `ring-1-domain-stays-pure`
+  also blocks a slice's `domain.ts` from importing `@devdigest/reviewer-core` for
+  its TYPES, not just its runtime code — `tsPreCompilationDeps: true` is set
+  globally in the ruleset (line 207), so even `import type { EvalCaseScore } from
+  '@devdigest/reviewer-core'` in `domain.ts` would be a new `error`. The fix that
+  needed no exception: `domain.ts`'s `deriveCasePassed` takes a locally-declared
+  `CasePassInputs` interface (`{ mustFindTotal, mustFindMatched,
+  mustNotFlagViolated }`) with no import at all — reviewer-core's actual
+  `EvalCaseScore` object satisfies it structurally, so the caller (T11's
+  runner/service, ring 2, unrestricted) passes the real scorer output straight
+  through with zero adapter code. Same trick applies to a task whose `Files:`
+  list explicitly bans `src/db` imports from `helpers.ts`: it takes plain
+  camelCase "row-shaped" interfaces it declares itself, not `EvalCaseRow` from
+  `db/rows.ts`, and the repository (built in a different task) passes its own
+  Drizzle row through since the shapes agree structurally (evidence:
+  .claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs
+  `ring-1-domain-stays-pure`, line 207 `tsPreCompilationDeps`;
+  server/src/modules/eval/domain.ts `CasePassInputs`;
+  server/src/modules/eval/helpers.ts `EvalCaseRowInput`)
+- 2026-08-30: `db/schema/eval.ts`'s `evalCases` table (landed by T3) has NO
+  `created_at` column, yet `EvalCaseRecord.created_at` in
+  `vendor/shared/contracts/eval-ci.ts` is a required (non-nullable) string.
+  `eval/helpers.ts`'s `toEvalCaseRecord` therefore declares `createdAt: Date |
+  string` as a REQUIRED field on its row-input interface — a caller (T8's
+  repository or T11's service) has no column to source it from today. Flagging
+  for whoever wires `repository.ts`/`service.ts`: either add a `created_at`
+  timestamp column to `eval_cases` (an additive, non-interactive
+  `pnpm db:generate`) or the field has to come from somewhere else (e.g. read
+  off the UUID if it were a UUIDv7, which `defaultRandom()` does not produce)
+  (evidence: server/src/db/schema/eval.ts `evalCases`;
+  server/src/vendor/shared/contracts/eval-ci.ts `EvalCaseRecord.created_at`)
+- 2026-08-30: SPEC-04's AC-9 expectation schema (`EvalExpectation` in
+  `contracts/knowledge.ts`) uses field names `line`/`end_line`, NOT
+  `start_line`/`end_line` even though AC-1's prose says a case is created from
+  a finding's "start line, end line" — AC-9 is the schema's own EARS clause and
+  it names the field `line` singular. `EvalExpectation` was placed in
+  `knowledge.ts` rather than `eval-ci.ts` specifically so `eval-ci.ts` (which
+  already imports from `knowledge.ts`) can reuse it for `EvalCaseInput` without
+  a new import cycle, and so `knowledge.ts`'s own `EvalCase.expected_output`
+  narrows on the same type. T9's domain mapping (finding → expectation) must
+  read `finding.start_line` and write it into `expectation.line` — the two
+  names are NOT the same field reused under a new name (evidence:
+  server/src/vendor/shared/contracts/knowledge.ts `EvalExpectation`;
+  server/src/vendor/shared/contracts/eval-ci.ts `EvalCaseInput.expected_output`)
+- 2026-08-30: `contracts/eval-ci.ts` and `contracts/knowledge.ts` both carry a
+  `/** ... */` doc comment on every existing export — that is NOT license to
+  add the same style to new exports in the same file. Root `CLAUDE.md`'s
+  "no comments in new code" is a hard constraint independent of the
+  surrounding file's convention, and `onion-architecture`'s migration notes
+  warn specifically about copying a neighbour's JSDoc header into new code.
+  `EvalCaseRecord`, `EvalSuiteRunRecord`, `EvalMetricDiff`, `EvalCompare` and
+  `EvalExpectation`/`EvalExpectationKind` (added for SPEC-04/T2) carry no doc
+  comments, breaking visual consistency with `EvalRunRecord` right above them
+  — intentional, not an oversight (evidence:
+  server/src/vendor/shared/contracts/eval-ci.ts:57-115)
 - 2026-08-24: `groundFocusRows` (AC-24) needs a real `UnifiedDiff`, but
   `BriefService` has no `GitClient` port and T6 gave it none — adding one would
   have been a second unauthorized port edit. `FileSource.getChangedFiles`
@@ -128,6 +319,65 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-08-30: NEVER prove a domain function's loop-termination by calling that function — vitest's per-test timeout cannot interrupt a synchronous `while` loop, so the worker hangs and the file never reports at all instead of going red. Assert the invariant on the pure helper the loop depends on. Concretely: `disambiguateCaseName(name, [truncateCaseName(name)])` never returns when `name` is longer than `MAX_EVAL_CASE_NAME_LENGTH`, because `truncateCaseName(`${truncated} 2`)` clips straight back to `truncated`, so the candidate never changes; the test therefore asserts on `truncateCaseName` (evidence: server/src/modules/eval/domain.ts:60-72; server/test/eval-domain.test.ts "yields a suffixed candidate distinct from the truncated base name")
+- 2026-08-30: the JSDoc-header trap the `onion-architecture` skill's project
+  profile already names ("matching the surrounding code loses to the explicit
+  rule here") recurred a SECOND time across the four wave-4.5 `*.it.test.ts`
+  files (`eval.it.test.ts`, `eval-runner.it.test.ts`,
+  `eval-agent-delete.it.test.ts`, `eval-seed.it.test.ts`) — every one opened
+  its top-level `describe` with a `/** ... */` block explaining the AC
+  coverage, copied from the pre-rule sibling `*.it.test.ts` files' convention.
+  Fixed by deleting the block and folding anything load-bearing into the
+  `describe`/`it` name itself (the AC numbers were already in the name in every
+  case, so nothing needed adding). A SECOND, unrelated source of the same
+  violation showed up alongside it: every sibling `*.it.test.ts`'s
+  `if (!hasDocker) { ... }` guard carries a `// eslint-disable-next-line
+  no-console` line above the `console.warn` — copied forward even though this
+  repo has **no eslint config at all** (`server/` has no `.eslintrc*` or
+  `eslint.config*`), so the directive comment does nothing and is pure
+  decoration. `rg -n '^\s*//|/\*'` — the shape a comment-audit actually runs —
+  catches both classes identically; check for STRAY DIRECTIVE comments
+  (eslint-disable, ts-ignore, etc.) as a category of its own, not just
+  prose/JSDoc, whenever auditing a file for the no-comments rule (evidence:
+  server/test/eval.it.test.ts, eval-runner.it.test.ts,
+  eval-agent-delete.it.test.ts, eval-seed.it.test.ts before this fix; the same
+  `// eslint-disable-next-line no-console` line also present unmodified in
+  server/test/jobs.it.test.ts, skills-stats.it.test.ts, skills.it.test.ts,
+  onboarding.it.test.ts, conventions.it.test.ts, integration.it.test.ts,
+  agents-versions.it.test.ts, context.it.test.ts, brief.it.test.ts,
+  eval-prompt-sensitivity.it.test.ts — all pre-existing, out of this fix's
+  scope)
+- 2026-08-30: "call the scorer, then also call a same-shaped local helper on
+  its output" is NOT single-sourcing an arithmetic rule — it just moves the
+  duplication one hop later. `eval/domain.ts` had `deriveCasePassed({
+  mustFindTotal, mustFindMatched, mustNotFlagViolated })` reimplementing the
+  exact boolean `reviewer-core`'s `scoreEvalCase` already returns as
+  `EvalCaseScore.passed` (same three fields, same `===`/`0` check); calling it
+  as `deriveCasePassed(score)` in `runner.ts` made it LOOK like composition
+  but the three inputs were already sitting on `score` next to the field they
+  were re-deriving. Checked first whether it carried AC-13's "empty
+  expectation list is silence" semantics distinctly from `score.passed` — it
+  didn't, `mustFindTotal === 0 && mustFindMatched === 0` already passes
+  vacuously inside `scoreEvalCase` itself. Fix: delete the helper, read
+  `score.passed` directly. The `scoreCaseAsZeroMatches` failure-path override
+  (`{ ...scoreEvalCase(expectations, []), passed: false }`) needed no change —
+  it was never routed through `deriveCasePassed` (evidence:
+  reviewer-core/src/eval/score.ts:173 `passed = mustFindMatched ===
+  mustFindTotal && mustNotFlagViolated === 0`; server/src/modules/eval/
+  runner.ts:168-169 before the fix; server/src/modules/eval/domain.ts removed
+  `deriveCasePassed`/`CasePassInputs`)
+- 2026-08-30: T10 — nesting a NEW fixture insert inside an EXISTING
+  `if (!priorPr) { ... }` PR-creation guard means it never backfills on any
+  database seeded before that new code existed — the local dev Postgres this
+  was verified against already had PR #415 from a prior seed run, so the
+  undecided finding meant to live there silently never got created on the
+  first `pnpm db:seed` after adding the block, with zero error. Caught only by
+  querying the DB directly after seeding, not by the unit-test lane (seeds
+  aren't unit-tested). Fix: give the new fixture its OWN select-then-insert
+  keyed on a value that identifies IT specifically (the finding's title, not
+  the PR's existence), independent of whether the PR row itself was just
+  created (evidence: server/src/db/seed.ts `priorUndecidedFinding` select
+  before the PR #415 review/finding insert, moved out of `if (!priorPr)`)
 - 2026-08-24: a bare `config: { rateLimit: { max, timeWindow } }` with no
   `keyGenerator` is ONE global bucket shared by every caller, not a
   per-caller limit — `intent/routes.ts:76`'s `POST /pulls/:id/intent` still
@@ -188,6 +438,52 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-08-31: writing a seeded eval case — `scoreEvalCase` matches a finding to
+  an expectation on `file` + `category` + a ±`EVAL_LINE_TOLERANCE` (3) widened
+  line range ONLY; `severity` and `title_contains` are recorded as
+  `severityAgreement`/`titleAgreement` and never enter `passed`. Two
+  consequences when authoring a case set: (1) the declared `line`/`end_line`
+  must be new-side line numbers the diff's own `@@` hunk actually covers, or
+  the grounding gate drops the agent's finding and the case can never pass —
+  count the hunk body and make the `@@ -a,b +c,d @@` counts match it; (2) a
+  `must_not_flag` near-miss is violated by ANY finding of that category in that
+  file within the widened window, so a negative control must differ from its
+  positive twin by LINE REGION, not merely by title (evidence:
+  reviewer-core/src/eval/score.ts:79-85,173; server/src/db/seed-evals.ts)
+- 2026-08-31: `EvalService.listDashboards` sources its agent list from
+  `AgentConfigSource.listAgents(workspaceId)`, NOT from
+  `EvalCaseStore.listOwnerIdsWithCases` — the dashboard has to list agents with
+  zero eval cases, since the card is the only route into an agent's eval
+  surface and a case-derived list makes the FIRST case uncreatable from
+  `/evals`. Consequence to know before adding to that loop: it is a sequential
+  N+1 that got 5x worse — per agent it runs `getDashboard`, which itself does
+  `getAgent` + three parallel queries + one `listRunsBySuiteRun` + one
+  `getCaseById` per distinct case in that run. `listOwnerIdsWithCases` was
+  deleted from the port and repository in the same change because nothing else
+  in the repo called it (evidence: server/src/modules/eval/service.ts
+  `listDashboards`; server/src/modules/eval/repository.ts `listAgents`)
+- 2026-08-30: follow-up to the truncate-loop entry under "What Doesn't Work" — the fix that restores termination is a SUFFIX-PRESERVING truncate, not a guard in the caller: `truncateCaseName` now matches a trailing ` <digits>` and clips the BASE to `MAX_EVAL_CASE_NAME_LENGTH - suffix.length` so the suffix always survives, which is exactly the invariant the domain test asserts. The same function also collapses `\p{Cc}\p{Cf}\p{Zl}\p{Zp}` and runs of whitespace to a single space before persisting, because a case name built from a model-authored finding title lands in `reviewPullRequest({ task })`, and `assemblePrompt` pushes `parts.task` verbatim as the FIRST line of the user message with no `wrapUntrusted` — the one `userSections.push` the `INJECTION_GUARD` cannot cover (evidence: server/src/modules/eval/domain.ts `truncateCaseName`; reviewer-core/src/prompt.ts:113)
+- 2026-08-30: `platform/container.ts` now takes the Fastify logger as its FOURTH constructor argument (`new Container(config, db, opts.overrides, app.log)`), because a background executor built inside a container getter has no request to borrow `req.log` from. `EvalRunner` is the first consumer: its "eval: suite run crashed"/"failed" lines never emitted outside tests until this was wired. Log ids and `err.message` only — never `kase.inputDiff`, an expectation, or any prompt content (evidence: server/src/app.ts `const container = new Container(...)`; server/src/platform/container.ts `get evalRunner()`; server/src/modules/eval/runner.ts `runSuite`)
+- 2026-08-30: an eval suite run replays the `agent_versions` snapshot's SKILL BODIES, not just its prompt and model: `EvalRepository.getVersionSnapshot` resolves the snapshot's `skills` (which are skill **ids**, written by `agents/repository.ts`'s `snapshotVersion`) into `skillBlocks: string[]` rendered as `### <name>\n<body>`, enabled skills only, in snapshot order — the same shape `reviews/helpers.ts`'s `renderSkillBlocks` produces for a real review. Without it an agent whose behaviour is carried by an attached skill scored identically with and without the skill. Repo-intel context (callers digest, repo map, project specs) is still NOT replayed, and that is recorded in `server/docs/eval-pipeline.md` (evidence: server/src/modules/eval/repository.ts `skillBlocksFor`; server/src/modules/eval/runner.ts `executeCase`)
+- 2026-08-30: T23 (agents/ports.ts) — a slice-owned port satisfied by an
+  object literal built inline in `routes.ts`, reading `app.container.evalRepo`
+  by PROPERTY ACCESS (no import), is a lighter variant of the `Container`-getter
+  trick documented below. `EvalCaseCleanup.deleteCasesForOwner(workspaceId,
+  agentId)` is implemented as `{ deleteCasesForOwner: (w, id) =>
+  app.container.evalRepo.deleteCasesForOwner(w, 'agent', id) }` right in
+  `agentsRoutes`, so `modules/agents/` never imports `modules/eval/` anywhere —
+  `rg 'modules/eval' server/src/modules/agents` returns nothing — while still
+  reaching the sibling slice's repository through the container's existing
+  `evalRepo` getter. No new `platform/container.ts` getter was needed because
+  `evalRepo` already existed (added by T8); this trick only works when the
+  target method is already exposed on `Container`. Confirmed depcruise stayed
+  at 0 errors / 52 warnings after the change — no new
+  `no-cross-slice-imports` or `platform-not-to-modules` violation, since
+  `routes.ts` never names `EvalRepository` (evidence:
+  server/src/modules/agents/ports.ts `EvalCaseCleanup`;
+  server/src/modules/agents/routes.ts `agentsRoutes`; `cd server && npx
+  depcruise --config ../.claude/skills/onion-architecture/assets/dependency-cruiser.onion.cjs
+  src` → "52 dependency violations (0 errors, 52 warnings)")
 - 2026-08-24: a THIRD confirmed instance of the `Container`-getter port trick
   below, with a new wrinkle: when the sibling's own class ALSO takes
   `Container` in its constructor (the §3 `container-only-in-composition-root`
@@ -769,6 +1065,24 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-08-30: T11 (eval/service.ts) — a generic `safeParse` helper typed
+  `function f<T>(schema: z.ZodType<T>, input: unknown): T` (the exact shape
+  `eval/helpers.ts`'s existing `parseOrFail` already uses) infers `T` WRONG the
+  moment the schema has a field with `.default(...)` or `.transform(...)`,
+  where the schema's Input type differs from its Output type — `z.ZodType<T>`
+  bakes in `Input = Output = T`, so passing a schema whose real Input ≠ Output
+  makes TS fall back to a broken inference (`input_diff` came out
+  `string | undefined` even though `.default('')` guarantees `string` on
+  output), and every downstream property read errors. Fix: type the helper as
+  `function f<S extends z.ZodTypeAny>(schema: S, input: unknown): z.infer<S>`
+  instead — deriving the return type from the schema's OWN inferred type
+  sidesteps the variance mismatch entirely. `parseOrFail` in `helpers.ts` never
+  hit this because none of ITS schemas (`EvalCaseRecord`, `EvalRunRecord`,
+  `EvalSuiteRunRecord`) have a `.default()`/`.transform()` field — the bug only
+  shows up once a helper is reused against a schema like `EvalCaseInput` that
+  does (evidence: server/src/modules/eval/service.ts `parseOrBadRequest`,
+  `parseOrInternalError`; server/src/vendor/shared/contracts/eval-ci.ts
+  `EvalCaseInput.input_diff` `z.string().default('')`)
 - 2026-08-24: `smart-diff/classify.ts`'s `classifyPath` treats every seeded PR
   #482 file (`src/middleware/ratelimit.ts`, `src/api/public/webhooks.ts`,
   `src/config.ts`, `src/api/users.ts`) as `core`, not `wiring` — despite the
@@ -890,6 +1204,77 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 - 2026-07-29: Claude 5-family models (claude-sonnet-5, claude-opus-5, …) reject `temperature` with 400 "temperature is deprecated for this model" — ALWAYS route Anthropic tuning params through `anthropicTuningParams()`, which omits temperature when the major version ≥ 5; mirrors the existing `tuningParams()` pattern for GPT-5/o-series in openai.ts (evidence: server/src/adapters/llm/anthropic.ts anthropicTuningParams; test server/test/adapters.test.ts "anthropic tuning params")
 
 ## Recurring Errors & Fixes
+- 2026-08-30: a `verify-lNN.sh` that collects both `FAILED` and `SKIPPED` must branch on BOTH in its terminal block — `verify-l06.sh` printed every `SKIPPED[@]` entry and then tested only `${#FAILED[@]}`, so a run whose `client build` lane skipped on the `lsof -ti:3000` guard still printed `L06 verified.` and exited 0, i.e. it claimed verification on the strength of a lane that never ran. The fix is a second branch after the failure branch: `SKIPPED` non-empty and `FAILED` empty → `L06 not fully verified — N lane(s) skipped.` and **exit 0**, because a lane that could not run is not a failing lane (AC-52 fails only on a red lane). `${#ARR[@]}` on an empty array is safe under `set -u` even on macOS's bash 3.2, so the guard needs no `:-` fallback (evidence: scripts/verify-l06.sh:95-106; a real `pnpm verify:l06` run with a dev server on :3000, and a `VERIFY_SKIP_IT=1 VERIFY_SKIP_BUILD=1` run, both now printing the not-fully-verified line)
+- 2026-08-30: correction/resolution to the two entries below (AC-18 cancel 404
+  gap and the unordered `listCasesByOwner`) — both fixed. `cancelIfRunning`
+  now returns `'cancelled' | 'not_running' | 'not_found'` instead of a bare
+  `boolean`: inside one `db.transaction`, a `SELECT status` scoped by
+  `workspaceId AND id` runs first (this is the only place that can tell "no
+  such run in this workspace" apart from "it exists but isn't `running`"),
+  then the `UPDATE ... WHERE status='running'` only runs when that select found
+  a running row. `EvalService.cancelSuiteRun` throws `NotFoundError` on
+  `'not_found'` only, matching `getSuiteRun`/`getCaseById`/`updateCase`, and
+  still returns `{ ok: false }` (200) for `'not_running'` — a run that exists
+  in this workspace but already finished is not a 404. `test/eval.it.test.ts`'s
+  AC-18 cross-workspace cancel assertion (a genuinely `running` run in another
+  workspace) now gets 404, proving the "not running" confound was correctly
+  ruled out. Separately, `listCasesByOwner` gained
+  `.orderBy(asc(createdAt), asc(id))` — `created_at` (added for T3's amended
+  migration) is the natural key for "the order cases were authored in", with
+  the UUID primary key as a tiebreaker for two cases inserted in the same
+  transaction where `now()` can tie. `test/eval-runner.it.test.ts`'s
+  index-based assertion this originally worked around (see the entry below)
+  did not need to change — it already reads back persisted `case_id`s by set
+  membership, which remains correct and is now also deterministic (evidence:
+  server/src/modules/eval/ports.ts `CancelSuiteRunOutcome`;
+  server/src/modules/eval/repository.ts `cancelIfRunning`, `listCasesByOwner`;
+  server/src/modules/eval/service.ts `cancelSuiteRun`; server/test/eval.it.test.ts
+  "a case or run belonging to another workspace answers 404 on both read and
+  write (AC-18)" — 7/7 passing; server/test/eval-runner.it.test.ts — 9/9
+  passing)
+- 2026-08-30: T30 (eval-runner.it.test.ts) — `EvalRepository.listCasesByOwner`
+  has no `.orderBy()`, so `EvalRunner.runSuite`'s `for (const kase of cases)`
+  loop executes an agent's eval cases in whatever order Postgres happens to
+  return them, NOT creation order. A cancellation test that creates 3 cases via
+  `Promise.all` and then asserts the two per-case rows written before cancel
+  are specifically `cases[0]` and `cases[1]` (by array index) is flaky — one
+  repeat run out of three executed a different pair. Fix: after cancelling,
+  read back the actually-persisted `case_id`s and assert by SET membership
+  (every executed id is one of the agent's case ids, and the one id absent from
+  the executed set never appears in the LLM provider's call log) rather than
+  asserting a specific pair by index (evidence: server/src/modules/eval/
+  repository.ts `listCasesByOwner`; server/src/modules/eval/runner.ts
+  `runSuite`; server/test/eval-runner.it.test.ts "AC-59 / AC-60 / AC-61")
+- 2026-08-30: T30 (eval-runner.it.test.ts) — `buildApp`'s global
+  `@fastify/rate-limit` plugin is registered ONLY when `config.nodeEnv !==
+  'test'` (`app.ts:104`), so a per-route `config: { rateLimit: {...} }` (e.g.
+  the eval suite-run start route's 10/minute limit, AC-25) never actually
+  triggers 429 against an app built with the default `NODE_ENV=test` config —
+  an 11th request just returns 202 every time. To exercise a per-route rate
+  limit in an integration test, build that one app with
+  `loadConfig({ ...process.env, NODE_ENV: 'production', LOG_LEVEL: 'silent' })`
+  (matching `server/test/brief.it.test.ts`'s `makeApp({ nodeEnv: 'production' })`
+  pattern for its own AC-54 rate-limit test) — not the default `config()`
+  helper most other integration tests use (evidence: server/src/app.ts:103-106;
+  server/test/brief.it.test.ts:326 "rate-limits the sixth generate request
+  within a minute for one workspace (AC-54)")
+- 2026-08-30: T29 (eval.it.test.ts) — `POST /eval-suite-runs/:id/cancel`
+  (`EvalService.cancelSuiteRun`) does NOT enforce AC-18's cross-workspace 404
+  the way every other eval route does. `EvalRepository.cancelIfRunning` scopes
+  its `UPDATE` by `workspaceId AND status='running'` and returns `rows.length >
+  0`; a suite run belonging to another workspace and a suite run that simply
+  isn't `running` both fall through the same `false` branch, and the service
+  returns `{ ok: false }` with 200 — it never throws `NotFoundError` the way
+  `getSuiteRun`/`getCaseById`/`updateCase` do. Reproduced twice in a row (not a
+  Testcontainers flake): a `POST /eval-suite-runs/:id/cancel` against a
+  genuinely `running` suite run owned by a different workspace answers 200
+  `{ok:false}`, not 404, contradicting SPEC-04 AC-18 ("the server shall reject
+  any read or write of an eval case or eval run that belongs to a different
+  workspace ... with 404"). Left red rather than patched — only the test file
+  was in scope for this task (evidence: server/src/modules/eval/service.ts
+  `cancelSuiteRun`; server/src/modules/eval/repository.ts `cancelIfRunning`;
+  server/test/eval.it.test.ts "a case or run belonging to another workspace
+  answers 404 on both read and write (AC-18)")
 - 2026-08-28: **pgvector dimension mismatch after embedding model change silently returns zero rows.** Switching embedding models (e.g. OpenAI → Ollama, or changing to a model with different output dimensions) causes pgvector similarity queries to return no results if the column definition hasn't been updated. The column declares a fixed vector type `vector(1536)` (for OpenAI) or `vector(384)` (for smaller models); an embedding of the wrong dimension is rejected silently, not raising an error. ALWAYS run `ALTER TABLE <table> ALTER COLUMN <embedding_col> TYPE vector(<new_dimension>)` immediately after changing embedding models in configuration, or create a new column, backfill it, and drop the old one. Verify with a test query: `SELECT COUNT(*) FROM <table> WHERE <embedding_col> IS NOT NULL` before and after the migration, and spot-check one similarity search returns results (evidence: personal discovery session, verified against pgvector behavior docs)
 - 2026-08-24: an implementation plan's own `## Acceptance-criteria coverage`
   table is not proof — `docs/plans/2026-08-24-pr-why-risk-brief-blocking-reasons.md`
@@ -969,6 +1354,18 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-08-31: seeded 8-case eval sets (5 `must_find` + 3 `must_not_flag` near-miss controls) for General, Performance, Test Quality and API Contract Reviewers; generalised `seedEvalCases` to take its case set and drove it from `EVAL_CASE_SETS_BY_AGENT_NAME`. Security's set left byte-identical (e2e flow 11 asserts `0/9 passed`). Verified on a throwaway pg on :5446: 8 cases per agent, unchanged after a second `db:seed`.
+- 2026-08-30 (AC-54 remediation): `scripts/verify-l06.sh` no longer prints `L06 verified.` when a lane skipped — added a `SKIPPED`-non-empty branch printing `L06 not fully verified — N lane(s) skipped.` at exit 0, leaving the all-green and any-failure branches unchanged. Proven with a full `pnpm verify:l06` (every lane green except the `client build` skip) and a `VERIFY_SKIP_IT=1 VERIFY_SKIP_BUILD=1` run.
+- 2026-08-30: SPEC-04 eval-pipeline remediation (server half) — fixed the hanging name-disambiguation loop, required the owning agent in `createCase` and made `listDashboards` skip a dangling owner, passed the version snapshot's skill bodies into the eval prompt, rate-limited the single-case run route per workspace, gave the runner `app.log`, made `cases_total` nullable in both contract copies, and stripped the AC-numbered comments out of `ports.ts`/`repository.ts` into `server/docs/eval-pipeline.md`.
+- 2026-08-30: SPEC-04 eval-pipeline test-coverage audit — closed AC-4 (case runs after its source PR is deleted), AC-13, AC-20 and AC-23 gaps in the eval integration tests; added an AC-8 name-length termination assertion that is red on a real defect.
+- 2026-08-30: T30 — wrote `test/eval-runner.it.test.ts` (9 cases covering
+  AC-19–AC-26, AC-43, AC-57, AC-59–AC-61); found and recorded the non-test-env
+  rate-limit gap and the unordered `listCasesByOwner` iteration.
+- 2026-08-30: T11 — built `modules/eval/service.ts`, `runner.ts`, `routes.ts`
+  (14 routes) and wired them into `modules/index.ts`, `platform/container.ts`
+  (`evalRepo`/`evalRunner` getters) and `app.ts` (stale suite-run reaper on
+  boot, next to `ReviewService.reapStaleRuns`); added the eval route-table
+  assertion to `test/routes-smoke.test.ts`.
 - 2026-08-24: fixed the AC-61 seed violation — `db/seed.ts`'s `file_summaries`
   entry for `src/api/public/webhooks.ts` (classifies `boilerplate`, per
   `public` being a `BOILERPLATE_SEGMENT`) was replaced with one for
@@ -1102,6 +1499,17 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Open Questions
 <!-- Unresolved things that need more investigation -->
+- 2026-08-30: T3's `eval_cases` table (`server/src/db/schema/eval.ts`) has NO
+  `created_at` column, but T2's `EvalCaseRecord` contract
+  (`server/src/vendor/shared/contracts/eval-ci.ts`) declares `created_at:
+  z.string()` as required. `EvalRepository` (T8) can only map what the row
+  actually has, so `StoredEvalCase` in `modules/eval/ports.ts` carries no
+  `createdAt` field — whoever builds the `EvalCaseRecord` DTO (T9's
+  `helpers.ts` or T11's `service.ts`) will hit this gap and needs either a
+  schema follow-up (add the column, expand-only) or a contract correction
+  before that mapping can `safeParse` cleanly (evidence:
+  server/src/db/schema/eval.ts `evalCases`; server/src/vendor/shared/contracts/eval-ci.ts
+  `EvalCaseRecord.created_at`)
 - 2026-08-24: correction — the `orderFocusRows` entry below is RESOLVED and no
   longer describes the tree. `ReviewSource.readFindings` is implemented
   (`server/src/modules/brief/ports.ts`, `repository.ts`) and

@@ -90,6 +90,8 @@ empty findings list; NEVER approve while reporting a CRITICAL. No findings ⇒ a
 - Set \`kind\` to "finding" and leave \`trifecta_components\` / \`evidence\` null —
   those are only for a security agent's lethal-trifecta data-flow findings.`;
 
+export const SECURITY_REVIEWER_SSRF_LINE = '   - A10 Server-Side Request Forgery (SSRF)';
+
 export const SECURITY_REVIEWER_PROMPT = `# Role
 You are a senior application security engineer performing a rigorous security
 review of a code change (diff). Your job is to find real, exploitable
@@ -115,7 +117,7 @@ Review the provided code across three layers:
      updates, CI/CD trust issues)
    - A09 Security Logging & Monitoring Failures (no audit trail, logging of
      secrets/PII)
-   - A10 Server-Side Request Forgery (SSRF)
+${SECURITY_REVIEWER_SSRF_LINE}
    - Also: XSS (stored/reflected/DOM), CSRF, open redirects, mass assignment,
      race conditions / TOCTOU, secrets in code.
 

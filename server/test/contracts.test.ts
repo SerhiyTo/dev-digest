@@ -12,6 +12,10 @@ import {
   Conformance,
   Onboarding,
   EvalRun,
+  EvalCase,
+  EvalCaseInput,
+  EvalDashboard,
+  EvalTrendPoint,
   MemoryItem,
   RunTrace,
   RunSummary,
@@ -503,5 +507,152 @@ describe('PR Brief — merge risk, review focus, file summaries', () => {
       stale: true,
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe('Eval contracts — expectation list narrowing (AC-9) and nullable metrics', () => {
+  const conformingExpectations = [
+    {
+      kind: 'must_find',
+      file: 'src/config.ts',
+      line: 12,
+      end_line: 14,
+      category: 'security',
+      severity: 'CRITICAL',
+      title_contains: 'secret',
+    },
+    {
+      kind: 'must_not_flag',
+      file: 'src/handlers/webhook.ts',
+      line: 40,
+      category: 'bug',
+    },
+  ];
+
+  it('EvalCaseInput and EvalCase parse a conforming expectation list', () => {
+    const input = EvalCaseInput.safeParse({
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      name: 'flags the hardcoded secret',
+      input_diff: 'diff --git a/src/config.ts b/src/config.ts',
+      expected_output: conformingExpectations,
+    });
+    expect(input.success).toBe(true);
+    expect(input.success && input.data.expected_output).toHaveLength(2);
+
+    const record = EvalCase.safeParse({
+      id: 'c1',
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      name: 'flags the hardcoded secret',
+      input_diff: 'diff --git a/src/config.ts b/src/config.ts',
+      input_files: null,
+      input_meta: null,
+      expected_output: conformingExpectations,
+    });
+    expect(record.success).toBe(true);
+  });
+
+  it('EvalCaseInput and EvalCase reject a non-conforming expectation list', () => {
+    const badKind = EvalCaseInput.safeParse({
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      name: 'bad kind',
+      expected_output: [{ kind: 'must_maybe', file: 'a.ts', line: 1, category: 'bug' }],
+    });
+    expect(badKind.success).toBe(false);
+
+    const missingLine = EvalCase.safeParse({
+      id: 'c1',
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      name: 'missing line',
+      input_diff: '',
+      input_files: null,
+      input_meta: null,
+      expected_output: [{ kind: 'must_find', file: 'a.ts', category: 'bug' }],
+    });
+    expect(missingLine.success).toBe(false);
+  });
+
+  it('EvalCaseInput accepts an empty expectation list (AC-13)', () => {
+    expect(
+      EvalCaseInput.safeParse({
+        owner_kind: 'skill',
+        owner_id: 's1',
+        name: 'asserts silence',
+        expected_output: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('EvalDashboard.current and .delta accept null for a never-run agent (AC-35, AC-36, AC-39)', () => {
+    const parsed = EvalDashboard.safeParse({
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      cases_total: 3,
+      current: {
+        recall: null,
+        precision: null,
+        citation_accuracy: null,
+        traces_passed: null,
+        traces_total: 3,
+        cost_usd: null,
+      },
+      delta: { recall: null, precision: null, citation_accuracy: null },
+      trend: [],
+      recent_runs: [],
+      alert: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('EvalDashboard.delta accepts null for an agent with exactly one completed run (AC-40)', () => {
+    const parsed = EvalDashboard.safeParse({
+      owner_kind: 'agent',
+      owner_id: 'a1',
+      cases_total: 3,
+      current: {
+        recall: 0.5,
+        precision: 1,
+        citation_accuracy: 0.9,
+        traces_passed: 2,
+        traces_total: 3,
+        cost_usd: 0.01,
+      },
+      delta: { recall: null, precision: null, citation_accuracy: null },
+      trend: [],
+      recent_runs: [],
+      alert: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('EvalTrendPoint pins null recall/precision/citation_accuracy', () => {
+    expect(
+      EvalTrendPoint.safeParse({
+        ran_at: '2026-08-24T00:00:00.000Z',
+        recall: null,
+        precision: null,
+        citation_accuracy: null,
+        pass_rate: 0,
+        cost_usd: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('knowledge.ts EvalRun pins null recall/precision/citation_accuracy', () => {
+    expect(
+      EvalRun.safeParse({
+        recall: null,
+        precision: null,
+        citation_accuracy: null,
+        traces_passed: 0,
+        traces_total: 3,
+        duration_ms: 500,
+        cost_usd: null,
+        per_trace: [],
+      }).success,
+    ).toBe(true);
   });
 });

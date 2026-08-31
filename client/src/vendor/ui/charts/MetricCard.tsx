@@ -10,6 +10,7 @@ export function MetricCard({
   color,
   trend,
   suffix,
+  deltaLabel,
 }: {
   label: string;
   value: React.ReactNode;
@@ -17,6 +18,7 @@ export function MetricCard({
   color?: string;
   trend?: number[];
   suffix?: string;
+  deltaLabel?: string;
 }) {
   const up = (delta ?? 0) > 0;
   const flat = delta === 0;
@@ -62,7 +64,7 @@ export function MetricCard({
             }}
           >
             <DeltaIcon size={12} />
-            <span className="tnum">{Math.abs(delta).toFixed(2)}</span>
+            <span className="tnum">{deltaLabel ?? Math.abs(delta).toFixed(2)}</span>
           </span>
         )}
       </div>

@@ -61,7 +61,9 @@ Docker is unavailable.
 > `pnpm exec vitest run .it.test --no-file-parallelism` when the result has to
 > mean something; `scripts/verify-l04.sh:56` does **not** pass that flag yet, so
 > the merge gate inherits both failure modes — a false green, and a red run on
-> an unchanged tree that trains people to re-run until it passes. A three-digit
+> an unchanged tree that trains people to re-run until it passes.
+> `scripts/verify-l06.sh:49` **does** pass it, so when the two verifiers disagree
+> about the integration lane, believe the newer one. A three-digit
 > `transform` time in a vitest summary means the machine, not the diff.
 
 **reviewer-core** — the pure engine: `toReview` selection, prompt construction,
@@ -87,7 +89,8 @@ No `chat`, no model key.
 
 ```sh
 # every lane for one lesson, in one command
-./scripts/verify-l04.sh                 # latest lesson (adds mcp + the L04 gates)
+./scripts/verify-l06.sh                 # latest lesson (the eval pipeline; also: pnpm verify:l06)
+./scripts/verify-l04.sh                 # adds mcp + the L04 gates
 ./scripts/verify-l03.sh                 # or: cd server && pnpm verify:l03
 VERIFY_SKIP_IT=1 ./scripts/verify-l04.sh        # no Docker
 VERIFY_SKIP_BUILD=1 ./scripts/verify-l04.sh     # no `next build`
@@ -121,10 +124,11 @@ cd e2e && npm install && npm test
 - **A per-lesson verifier is a shell script, not a package script.** It spans four
   packages, so it belongs to none of them, and the `skip-worktree` note above
   makes a `server/package.json` entry an unreliable entry point. `scripts/verify-l03.sh`
-  is the real thing; the `verify:l03` entries in `server/` and `client/` only
-  forward to it. It reports a lane it could not run as **skipped** rather than
-  passing — Docker absent, or a dev server holding `:3000` (building under
-  `pnpm dev` poisons the shared `.next`).
+  is the real thing; the `verify:l03` and `verify:l06` entries in `server/` and
+  `client/` only forward to their scripts. It reports a lane it could not run as
+  **skipped** rather than passing — Docker absent, or a dev server holding
+  `:3000` (building under `pnpm dev` poisons the shared `.next`) — and never
+  prints a verified line on the strength of a lane that did not run.
 - **Two things no suite checks, so `verify-l04.sh` checks them.** (1) The
   `vendor/shared` mirror: `server/src/vendor/shared` is canonical and
   `client/src/vendor/shared` is a hand-synced copy, and *nothing* in any suite

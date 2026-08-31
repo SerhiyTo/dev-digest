@@ -7,6 +7,15 @@ modules it spans.
 Written by the [`spec-creator`](../.claude/agents/spec-creator.md) subagent, and
 by nothing else.
 
+## Vocabulary: eval case / eval run / eval dashboard vs `@devdigest/evals`
+
+"Eval case", "eval run" and "eval dashboard" are product terms, owned by a
+reviewer agent inside a workspace — SPEC-04 (`specs/2026-08-30-eval-pipeline.md`)
+defines them. The root `evals/` directory is a different, unrelated thing: the
+`@devdigest/evals` package evaluates the Claude Code harness that builds this
+product, not a reviewer agent's findings. See
+`server/docs/eval-pipeline.md` for the detail.
+
 ## This directory versus `<module>/specs/`
 
 Two collections, two different jobs. The tense is the whole distinction:

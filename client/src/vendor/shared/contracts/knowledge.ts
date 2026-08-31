@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FindingCategory, Severity } from './findings.js';
 
 /**
  * Conformance, Onboarding, Eval, Memory, Conventions, Skills,
@@ -116,6 +117,20 @@ export const OnboardingView = z.object({
 export type OnboardingView = z.infer<typeof OnboardingView>;
 
 // ---- Eval ----
+export const EvalExpectationKind = z.enum(['must_find', 'must_not_flag']);
+export type EvalExpectationKind = z.infer<typeof EvalExpectationKind>;
+
+export const EvalExpectation = z.object({
+  kind: EvalExpectationKind,
+  file: z.string().min(1),
+  line: z.number().int(),
+  end_line: z.number().int().nullish(),
+  category: FindingCategory,
+  severity: Severity.nullish(),
+  title_contains: z.string().nullish(),
+});
+export type EvalExpectation = z.infer<typeof EvalExpectation>;
+
 export const EvalPerTrace = z.object({
   name: z.string(),
   pass: z.boolean(),
@@ -125,9 +140,9 @@ export const EvalPerTrace = z.object({
 export type EvalPerTrace = z.infer<typeof EvalPerTrace>;
 
 export const EvalRun = z.object({
-  recall: z.number().min(0).max(1),
-  precision: z.number().min(0).max(1),
-  citation_accuracy: z.number().min(0).max(1),
+  recall: z.number().min(0).max(1).nullable(),
+  precision: z.number().min(0).max(1).nullable(),
+  citation_accuracy: z.number().min(0).max(1).nullable(),
   traces_passed: z.number().int(),
   traces_total: z.number().int(),
   duration_ms: z.number().int(),
@@ -147,7 +162,7 @@ export const EvalCase = z.object({
   input_diff: z.string(),
   input_files: z.unknown(),
   input_meta: z.unknown(),
-  expected_output: z.unknown(),
+  expected_output: z.array(EvalExpectation),
   notes: z.string().nullish(),
 });
 export type EvalCase = z.infer<typeof EvalCase>;

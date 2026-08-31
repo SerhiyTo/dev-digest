@@ -64,7 +64,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  const container = new Container(config, db, opts.overrides);
+  const container = new Container(config, db, opts.overrides, app.log);
   app.decorate('container', container);
 
   // Reap runs left 'running' by a previous (now-dead) process — otherwise they
@@ -82,6 +82,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
   } catch (err) {
     app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
+  }
+
+  try {
+    const reapedEvalSuiteRuns = await container.evalRepo.reapStale();
+    if (reapedEvalSuiteRuns > 0) {
+      app.log.info({ reaped: reapedEvalSuiteRuns }, 'reaped stale running eval_suite_runs on boot');
+    }
+  } catch (err) {
+    app.log.warn({ err: (err as Error).message }, 'stale eval suite run reaping failed (non-fatal)');
   }
 
   // Security headers (X-Content-Type-Options, X-Frame-Options, …). The API

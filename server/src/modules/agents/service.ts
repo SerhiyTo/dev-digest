@@ -10,6 +10,7 @@ import type {
 } from '@devdigest/shared';
 import { AgentsRepository } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
+import type { EvalCaseCleanup } from './ports.js';
 
 /**
  * A2 — agents service. Business logic for the Agents tab + Agent Editor.
@@ -51,7 +52,10 @@ export interface UpdateAgentInput {
 export class AgentsService {
   private repo: AgentsRepository;
 
-  constructor(private container: Container) {
+  constructor(
+    private container: Container,
+    private evalCases: EvalCaseCleanup,
+  ) {
     this.repo = new AgentsRepository(container.db);
   }
 
@@ -65,9 +69,12 @@ export class AgentsService {
     return row ? toAgentDto(row) : undefined;
   }
 
-  /** Delete an agent (and its versions/skill-links, via cascade). */
   async delete(workspaceId: string, id: string): Promise<boolean> {
-    return this.repo.deleteById(workspaceId, id);
+    const deleted = await this.repo.deleteById(workspaceId, id);
+    if (deleted) {
+      await this.evalCases.deleteCasesForOwner(workspaceId, id);
+    }
+    return deleted;
   }
 
   async create(workspaceId: string, input: CreateAgentInput, userId?: string): Promise<Agent> {

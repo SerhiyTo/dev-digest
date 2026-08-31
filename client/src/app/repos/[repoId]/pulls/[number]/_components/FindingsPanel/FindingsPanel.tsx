@@ -3,11 +3,13 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Toggle, EmptyState } from "@devdigest/ui";
 import type { FindingRecord, Severity } from "@devdigest/shared";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
+import { useCreateEvalCaseFromFinding } from "../../../../../../../lib/hooks/evals";
 import {
   KEY_TO_ACTION,
   SCROLL_TO_TARGET_STEP_MS,
@@ -33,7 +35,10 @@ export function FindingsPanel({
   targetFindingId?: string | null;
 }) {
   const t = useTranslations("prReview");
+  const router = useRouter();
   const action = useFindingAction();
+  const createEvalCase = useCreateEvalCaseFromFinding();
+  const evalCaseOwnerIds = React.useRef(new Map<string, string>());
   const [hideLow, setHideLow] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
 
@@ -117,6 +122,16 @@ export function FindingsPanel({
               repoFullName={repoFullName}
               headSha={headSha}
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
+              onCreateEvalCase={() =>
+                createEvalCase.mutateAsync(f.id).then((result) => {
+                  evalCaseOwnerIds.current.set(result.case.id, result.case.owner_id);
+                  return { id: result.case.id, name: result.case.name };
+                })
+              }
+              onOpenEvalCase={(caseId) => {
+                const ownerId = evalCaseOwnerIds.current.get(caseId);
+                if (ownerId) router.push(`/agents/${ownerId}?tab=evals`);
+              }}
             />
           ))
         )}
