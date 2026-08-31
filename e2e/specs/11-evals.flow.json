@@ -147,13 +147,6 @@
     },
     {
       "cmd": [
-        "snapshot"
-      ],
-      "debug": true,
-      "label": "TEMP diagnostic: tree as the flow sees it immediately before the click"
-    },
-    {
-      "cmd": [
         "find",
         "role",
         "link",
