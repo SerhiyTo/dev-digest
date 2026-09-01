@@ -148,11 +148,9 @@
     {
       "cmd": [
         "find",
-        "role",
-        "link",
-        "click",
-        "--name",
-        "Security Reviewer"
+        "testid",
+        "eval-agent-security-reviewer",
+        "click"
       ],
       "label": "open that agent's own eval dashboard page"
     },

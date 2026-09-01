@@ -78,10 +78,23 @@ used to be one `<Link>`, which makes its accessible name the concatenation of
 everything inside it and forbids a second link within it. The create affordance
 is a link, so the wrapper had to go: the agent name is the anchor, the row is a
 plain `<li>`, and the link's accessible name is exactly the agent name. That is
-the name `e2e/specs/11-evals.flow.json` selects on (`find role link --name
-"Security Reviewer"`, a case-insensitive **substring** match), and
-`EvalAgentRow.test.tsx` asserts the name, the href, and that the row holds
-**exactly one link**, so the flow's selector cannot be broken silently.
+asserted by `EvalAgentRow.test.tsx` along with the href and the fact that the
+row holds **exactly one link**.
+
+**Why the e2e flow clicks a `data-testid` and not the role.** `find role link
+--name "Security Reviewer"` passes locally under every combination tried —
+`next dev`, a production build, agent-browser 0.33.2 and 0.35.2 — and fails
+deterministically on CI with `Element not found`, while the accessibility tree
+captured **immediately before the click** contains
+`link "Security Reviewer"` with that exact accessible name. Presence was
+therefore never the problem and the guard steps the flow already carries
+(`wait --load networkidle`, then `wait --text` on the target) cannot fix a
+locator that does not match what the snapshot shows. The link carries
+`data-testid` from `agentRowTestId(agentName)` — a pure, tested slug — and the
+flow selects `find testid eval-agent-security-reviewer click`, which depends on
+an attribute rather than on a computed accessible name. The role assertion
+stays in the colocated test, so the accessible name is still pinned; only the
+e2e locator changed.
 
 **Why the design's row-wide chevron is decorative.** The mockup draws a `›`
 affordance at the right of each row, implying the whole row navigates. Making it

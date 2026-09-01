@@ -7,7 +7,11 @@ import { EvalAgentRow } from "./EvalAgentRow";
 import type { EvalAgentRowRun } from "../../helpers";
 
 vi.mock("next/link", () => ({
-  default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 
 afterEach(cleanup);
@@ -74,6 +78,10 @@ describe("EvalAgentRow", () => {
       "/evals/agent-1",
     );
     expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Security Reviewer" })).toHaveAttribute(
+      "data-testid",
+      "eval-agent-security-reviewer",
+    );
   });
 
   it("renders a not-computed metric as a dash rather than 0% on a run that did compute the others", () => {

@@ -4,6 +4,14 @@ import { completedRunsNewestFirst } from "@/lib/evals";
 
 export const RECENT_RUNS_LIMIT = 8;
 
+export function agentRowTestId(agentName: string): string {
+  const slug = agentName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `eval-agent-${slug}`;
+}
+
 export interface EvalAgentRowRun {
   agentVersion: number | null;
   ranAt: string;

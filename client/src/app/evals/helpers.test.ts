@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { EvalDashboard, EvalRunRecord, EvalSuiteRunRecord } from "@devdigest/shared";
-import { latestRunFromDashboard, recentRunsAcrossAgents } from "./helpers";
+import { agentRowTestId, latestRunFromDashboard, recentRunsAcrossAgents } from "./helpers";
 
 function makeCaseRun(overrides: Partial<EvalRunRecord> = {}): EvalRunRecord {
   return {
@@ -122,5 +122,16 @@ describe("recentRunsAcrossAgents", () => {
 
   it("returns nothing when no agent has run anything", () => {
     expect(recentRunsAcrossAgents([{ agentId: "agent-a", runs: [] }])).toEqual([]);
+  });
+});
+
+describe("agentRowTestId", () => {
+  it("slugs the agent name into a stable hook the e2e flow can select on", () => {
+    expect(agentRowTestId("Security Reviewer")).toBe("eval-agent-security-reviewer");
+    expect(agentRowTestId("API Contract Reviewer")).toBe("eval-agent-api-contract-reviewer");
+  });
+
+  it("collapses punctuation and trims the separators it would otherwise leave behind", () => {
+    expect(agentRowTestId("  Test/Quality — Reviewer!  ")).toBe("eval-agent-test-quality-reviewer");
   });
 });

@@ -31,6 +31,23 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-09-01: `find role <role> --name` can fail with `Element not found` on CI
+  for an element the accessibility tree shows AT THAT MOMENT with exactly that
+  role and name. Flow 11's agent link was captured by a `snapshot` step inserted
+  immediately before the click — `link "Security Reviewer" [ref=e16]` — and the
+  very next command still reported it missing. Excluded as causes: `next dev` vs
+  a production build, agent-browser 0.33.2 vs 0.35.2 (what CI's UNPINNED
+  `npm i -g agent-browser` installs), and the seed, all 11/11 locally. When a
+  role lookup contradicts the snapshot, stop hardening the waits and move the
+  step to `find testid` — an attribute cannot disagree with itself (evidence:
+  e2e/specs/11-evals.flow.json; client/src/app/evals/helpers.ts `agentRowTestId`;
+  GitHub run 33452333702)
+- 2026-09-01: the runner used to report only `message.split("\n")[0]`, which is
+  the literal string `Command failed: <cmd>` — agent-browser's own stderr, the
+  line that says whether the element was missing, ambiguous or not clickable,
+  was discarded. Three CI cycles were spent guessing before
+  `commandFailureDetail` surfaced it. A harness that hides why a step failed
+  costs more than the step (evidence: e2e/run.ts `commandFailureDetail`)
 - 2026-08-30: ticking the two run checkboxes does NOT open the eval compare modal — it closes it. The agent eval page passes `onSelectionChange={(runIds) => { setSelectedRunIds(runIds); setCompareOpen(false); }}` and only `onCompare={() => setCompareOpen(true)}` ever sets it true, with the modal gated on `compareOpen && compareRunA && compareRunB`, so the `Compare selected runs` button (enabled at exactly two selected) is the only thing that opens it. A flow that selects two runs and then waits on the modal title hangs forever, and the seven compare assertions after it are dead. `find role button click --name "Compare selected runs"` goes between the second checkbox click and the `wait --text "Compare runs"` (evidence: client/src/app/evals/[agentId]/page.tsx:188-192,232; client/messages/en/eval.json `runList.compare`; e2e/specs/11-evals.flow.json)
 - 2026-08-30: an eval suite run's Pass-column text (`"{passed}/{total} passed"`) is NOT a valid completion signal — the client renders it from `run.cases_passed ?? 0`, so a `running` row with `cases_passed: null` shows the exact same `"0/9 passed"` text as a genuinely `done` run where every case failed. `wait --text "0/9 passed"` right after clicking "Run eval" can resolve while the run is still in progress, and a second "Run eval" click then fails because the button still reads "Running…". Gate on a status-specific signal first — `EvalRunList`'s selection checkbox only renders `isSelectableForCompare(run)` = `run.status === 'done'`, so `wait --fn "document.querySelectorAll('[role=checkbox]').length===1"` (or `===2` for two runs) is the actual completion proof; only assert the Pass-column text *after* that (evidence: client/src/app/evals/[agentId]/_components/EvalRunList/EvalRunList.tsx:120 `passed: run.cases_passed ?? 0`; helpers.ts:18-19 `isSelectableForCompare`; live-verified against a running dev stack, GET /agents/:id/eval-runs showing `status:"running", cases_passed:null` while the UI text already read as if zero-passed)
 - 2026-08-30: RESOLVED — the two entries below stop at "unexplained"; the answer is the click never scrolled into view and was dispatched outside the viewport. See the dated ROOT CAUSE entry under Recurring Errors & Fixes; the `wait 500` settle step those entries argued about was removed in the same commit, since it was never the mechanism (evidence: e2e/specs/09-project-context.flow.json)
@@ -67,6 +84,7 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-09-01: diagnosed flow 11's CI-only failure after the /evals redesign; added stderr reporting and an accessibility-tree dump to the failure artifact, and moved the agent-link click to a testid.
 - 2026-09-01: rewrote `11-evals.flow.json` for the per-agent Eval Dashboard redesign — the Security Reviewer card now lands on `/evals/:agentId` (a real page, no longer a redirect), so Run eval, the checkbox counting and Compare all moved there, the header's case count and the never-run state became assertions, and the "Eval cases" hop moved to the end via the page's "Configure eval cases →" link into `/agents/:id?tab=evals`. `npm run typecheck` clean; the flow is NOT live-verified end to end.
 - 2026-08-31: repointed flow 11 at the agent editor's Evals tab after the per-agent eval surface moved there and `/evals/:agentId` became a redirect — two step changes (`wait --url "tab=evals"`, the link label) plus the description and the README coverage row. `npm run typecheck` clean; the flow was NOT run (`e2e:hermetic` was left to the requester, and a dev server was holding :3000).
 - 2026-08-30 (AC-55 remediation): flow 11's compare segment was unreachable — the AC-44 fix made selecting runs close the compare modal, so the modal only opens from the `Compare selected runs` button. Inserted a scrollIntoView + `find role button --name "Compare selected runs"` pair between the second checkbox click and `wait --text "Compare runs"`, and corrected the step label and the flow description that both stated the opposite premise. `npm run typecheck` clean; the compare segment is still NOT live-verified end to end.

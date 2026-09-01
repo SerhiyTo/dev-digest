@@ -6,7 +6,11 @@ import messages from "../../../../../messages/en/eval.json";
 import { EvalRecentRunsTable } from "./EvalRecentRunsTable";
 
 vi.mock("next/link", () => ({
-  default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 
 afterEach(cleanup);

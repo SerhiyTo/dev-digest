@@ -12,7 +12,7 @@ import {
   type MetricField,
 } from "@/lib/evals";
 import { absoluteTime } from "@/lib/time";
-import type { EvalAgentRowRun } from "../../helpers";
+import { agentRowTestId, type EvalAgentRowRun } from "../../helpers";
 import { s } from "./styles";
 
 const NOT_COMPUTED = "—";
@@ -58,7 +58,7 @@ export function EvalAgentRow({
 
       <div style={s.identity}>
         <div style={s.nameRow}>
-          <Link href={`/evals/${agentId}`} style={s.name}>
+          <Link href={`/evals/${agentId}`} style={s.name} data-testid={agentRowTestId(agentName)}>
             {agentName}
           </Link>
           {model && <Badge mono>{model}</Badge>}
