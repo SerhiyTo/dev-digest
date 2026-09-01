@@ -31,6 +31,16 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-09-01: a `find ... click` can report SUCCESS and still not navigate when
+  the target is off-screen — the failure then surfaces one step later as a
+  `wait --url` timeout, pointing at the wrong step entirely. Flow 11's
+  configure-cases click landed nowhere because the preceding compare-modal steps
+  had scrolled the run table into view, leaving the header link above the
+  viewport; the failure snapshot showed the page unmoved with the link present.
+  The `eval` + `scrollIntoView({block:'center'})` step the file already used for
+  three other controls fixed it, and the suite went 11/11 on CI. Centre anything
+  you click after the page has been scrolled for an earlier step (evidence:
+  e2e/specs/11-evals.flow.json; GitHub runs 33453822851 → 33454202635)
 - 2026-09-01: `find role link` is the ONE locator that does not survive CI.
   Flow 11 was the only flow in the suite using it, and it is the only flow that
   failed; BOTH of its `find role link click` steps failed there with
