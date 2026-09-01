@@ -18,7 +18,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdirSync, readFileSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -48,6 +48,13 @@ async function ab(args: string[]): Promise<string> {
     maxBuffer: 32 * 1024 * 1024,
   });
   return stdout ?? "";
+}
+
+function commandFailureDetail(e: unknown): string {
+  const err = e as Error & { stderr?: string; stdout?: string };
+  const head = (err.message ?? String(e)).split("\n")[0];
+  const reason = (err.stderr ?? "").trim() || (err.stdout ?? "").trim();
+  return reason ? `${head} — ${reason.replace(/\s+/g, " ").slice(0, 600)}` : head;
 }
 
 function loadFlows(): { file: string; flow: Flow }[] {
@@ -80,12 +87,14 @@ async function runFlow(file: string, flow: Flow): Promise<FlowResult> {
       console.log(`   ✓ ${label}`);
       if (step.debug) console.log(`     ↳ ${stdout.trim().slice(0, 2000)}`);
     } catch (e) {
-      const msg = (e as Error).message.split("\n")[0];
+      const msg = commandFailureDetail(e);
       steps.push({ label, ok: false, detail: msg });
       console.log(`   ✗ ${label} — ${msg}`);
       // Best-effort failure screenshot for the artifact upload.
       mkdirSync(RESULTS_DIR, { recursive: true });
       await ab(["screenshot", join(RESULTS_DIR, `${id}-fail.png`)]).catch(() => {});
+      const tree = await ab(["snapshot"]).catch(() => "");
+      if (tree) writeFileSync(join(RESULTS_DIR, `${id}-fail.snapshot.txt`), tree);
       break;
     }
   }

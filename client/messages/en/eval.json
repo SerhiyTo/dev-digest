@@ -9,10 +9,14 @@
     "metricTrend": "Metric trend",
     "recentRuns": "Recent runs",
     "noRuns": "No runs yet. Create an eval case and run it.",
+    "neverRun": "never run",
+    "agentVersion": "v{version}",
+    "passedOfTotal": "{passed}/{total} passed",
     "metrics": {
       "recall": "RECALL",
       "precision": "PRECISION",
-      "citationAccuracy": "CITATION ACCURACY"
+      "citationAccuracy": "CITATION ACCURACY",
+      "tracesPassed": "TRACES PASSED"
     },
     "legend": {
       "recall": "Recall",
@@ -24,11 +28,34 @@
       "recall": "Recall",
       "precision": "Precision",
       "citation": "Citation",
+      "version": "Version",
       "pass": "Pass",
-      "cost": "Cost"
+      "cost": "Cost",
+      "agent": "Agent"
     },
     "pass": "pass",
-    "fail": "fail"
+    "fail": "fail",
+    "openDashboard": "View full dashboard →",
+    "agentsSubtitle": "Regression harness across all reviewer agents · pick an agent to see its runs",
+    "agentsSection": "Agents",
+    "recentRunsAllAgents": "Recent eval runs · all agents",
+    "lastRun": "Last run"
+  },
+  "dashboardPage": {
+    "subtitle": "Regression harness · {runs, plural, one {# run} other {# runs}} on the {cases}-case gold set",
+    "agentPickerLabel": "Switch agent",
+    "rangeLabel": "Date range",
+    "range": {
+      "d7": "7 days",
+      "d30": "30 days",
+      "d90": "90 days",
+      "all": "All time"
+    },
+    "selectedCount": "{count} selected",
+    "compare": "Compare",
+    "noRunsInRange": "No runs in the selected range. Widen the date range to see older runs.",
+    "agentLoadError": "Couldn’t load this agent",
+    "backToEvals": "All agents"
   },
   "caseEditor": {
     "newCase": "New eval case",
@@ -55,23 +82,68 @@
     "invalidJson": "invalid JSON",
     "lastRunPassed": "Last run passed",
     "lastRunFailed": "Last run failed",
-    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s"
+    "resultSummary": "recall {recall}% · precision {precision}% · citation {citation}% · {duration}s",
+    "insertFinding": "Insert finding skeleton",
+    "chooseKind": "Choose a kind",
+    "kindMustFind": "must_find",
+    "kindMustNotFlag": "must_not_flag"
   },
   "evalsTab": {
     "metricsTitle": "Eval metrics",
     "metricsSubtitle": "Recall / Precision / Citation for this agent's eval cases",
     "casesHeading": "Eval cases",
-    "newCase": "New case",
+    "newCase": "New eval case",
     "loadingCases": "Loading cases…",
     "emptyCases": "No eval cases yet. Create one to assert this agent's expected findings on a sample diff.",
-    "neverRun": "never run",
     "passed": "passed",
     "failed": "failed",
     "recallSuffix": " · recall {recall}%",
     "run": "Run",
     "running": "Running…",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "kindMustFind": "must find",
+    "kindMustNotFlag": "must not flag",
+    "passingBadge": "{passed} / {total} passing",
+    "expectedGot": "expected {expected, plural, one {# finding} other {# findings}}, got {got}",
+    "expectedOnly": "expected {expected, plural, one {# finding} other {# findings}}",
+    "emptyExpectation": "empty []",
+    "statusPassed": "Passed",
+    "statusFailed": "Failed",
+    "statusNeverRun": "Never run"
+  },
+  "metricStrip": {
+    "notComputed": "not computed",
+    "noPreviousRun": "No previous run to compare against",
+    "regressionBannerTitle": "Metrics fell since the last run",
+    "regressionItem": "{metric} down {amount} pts",
+    "deltaUp": "+{amount} pts",
+    "deltaDown": "-{amount} pts",
+    "deltaFlat": "±0 pts"
+  },
+  "trendChart": {
+    "empty": "No completed runs yet.",
+    "summary": "{count, plural, one {# completed run plotted} other {# completed runs plotted}}, oldest to newest"
+  },
+  "runList": {
+    "cancel": "Cancel",
+    "cancelling": "Cancelling…",
+    "cancelled": "Cancelled",
+    "selectRun": "Select run from {time}",
+    "compare": "Compare selected runs",
+    "compareHint": "Select exactly two runs to compare",
+    "perCaseHeading": "Per-case results"
+  },
+  "compareModal": {
+    "title": "Compare runs",
+    "older": "Older",
+    "newer": "Newer",
+    "difference": "Difference",
+    "promptDiffTitle": "System prompt",
+    "promptDiffUnavailable": "The prompt used for one of these runs could not be read, so the prompt difference is unavailable.",
+    "promptDiffUnchanged": "The system prompt is identical in both runs.",
+    "sameVersion": "These runs share the same agent configuration — nothing changed between them.",
+    "close": "Close"
   },
   "page": {
     "crumbSkillsLab": "Skills Lab",

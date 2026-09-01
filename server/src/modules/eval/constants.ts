@@ -1,0 +1,7 @@
+export const MAX_EVAL_CASES_PER_OWNER = 200;
+export const MAX_EXPECTATIONS_PER_CASE = 100;
+export const MAX_EVAL_DIFF_BYTES = 256 * 1024;
+export const MAX_EVAL_EXPECTATION_JSON_BYTES = 64 * 1024;
+export const MAX_EVAL_CASE_NAME_LENGTH = 120;
+export const EVAL_CASE_TIMEOUT_MS = 120_000;
+export const EVAL_RUN_PAGE_SIZE = 50;

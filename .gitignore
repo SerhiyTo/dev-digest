@@ -32,3 +32,6 @@ test-results/
 
 # superpowers SDD scratch (git-ignored working artifacts)
 .superpowers/
+
+# Design mockups pasted into sessions, not source
+/eval-dashboard*.png

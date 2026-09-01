@@ -83,6 +83,9 @@ flowchart TB
   subgraph Context["Project context"]
     context["context<br/>/repos/:id/context · /context/file · /context/resync · /context/estimate<br/>/agents/:id/context · /skills/:id/context"]
   end
+  subgraph Evals["Eval pipeline"]
+    evals["eval<br/>/evals · /agents/:id/eval-dashboard · /agents/:id/eval-cases<br/>/findings/:id/eval-case · /eval-cases/:id (· /run)<br/>/agents/:id/eval-runs (· /start · /compare) · /eval-suite-runs/:id (· /cancel)"]
+  end
   subgraph Platform["Platform"]
     settings["settings<br/>/settings · /providers"]
     workspace["workspace<br/>/workspace"]

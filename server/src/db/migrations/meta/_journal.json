@@ -162,6 +162,20 @@
       "when": 1787577086691,
       "tag": "0022_bent_master_mold",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788104309943,
+      "tag": "0023_swift_dakota_north",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788107299027,
+      "tag": "0024_handy_vargas",
+      "breakpoints": true
     }
   ]
 }

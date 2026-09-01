@@ -6,10 +6,12 @@ export function Checkbox({
   checked,
   onChange,
   label,
+  hideLabel,
 }: {
   checked: boolean;
   onChange?: (v: boolean) => void;
   label?: React.ReactNode;
+  hideLabel?: boolean;
 }) {
   return (
     <label
@@ -41,7 +43,7 @@ export function Checkbox({
       >
         {checked && <Icon.Check size={11} style={{ color: "#fff" }} />}
       </button>
-      {label}
+      {hideLabel ? null : label}
     </label>
   );
 }

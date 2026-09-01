@@ -79,28 +79,29 @@ step "e2e typecheck" bash -c "cd '$ROOT/e2e' && npm run typecheck"
 step "L04 routes are registered" bash -c \
   "cd '$ROOT/server' && pnpm exec vitest run test/routes-smoke.test.ts"
 
-# The gate is file-by-file rather than tree-wide because three contracts are
-# KNOWN to diverge; they are listed below so that "mirrored" and "not checked"
-# stay distinguishable instead of one silently passing for the other.
-#   contracts/eval-ci.ts       — the client copy declares no AgentManifest at all
-#                                (server-only; docs/plans/2026-08-22-project-context.md,
-#                                amendment A5). Not a field-level divergence.
-#   contracts/productionize.ts — pre-existing drift, predates A5.
-#   contracts/trace.ts         — pre-existing drift, predates A5.
-# Repairing that drift is a change of its own; until then these three are
-# reported as known-divergent rather than left silently absent.
+# The gate is file-by-file rather than tree-wide because one contract is KNOWN
+# to diverge; it is listed below so that "mirrored" and "not checked" stay
+# distinguishable instead of one silently passing for the other.
+#   contracts/productionize.ts — pre-existing drift.
+# Every other contract file is byte-identical between the two copies as of
+# 2026-08-30 (verified with `diff -rq server/src/vendor/shared
+# client/src/vendor/shared`) and is gated below so a future one-sided edit —
+# such as the `ConformanceInput.provider` drift `knowledge.ts` once carried —
+# fails this command instead of reaching a browser silently.
 # Note that index.ts re-exports with `export *`, so its passing proves the two
 # barrels have the same SHAPE, not that the two surfaces agree — every file
 # added to the gated list narrows that gap by one.
 step "vendor/shared mirror is byte-identical" bash -c "
   status=0
   for f in contracts/review-api.ts contracts/brief.ts contracts/context.ts \
-           contracts/platform.ts adapters.ts index.ts; do
+           contracts/platform.ts contracts/eval-ci.ts contracts/trace.ts \
+           contracts/findings.ts contracts/knowledge.ts \
+           contracts/observability.ts contracts/why.ts adapters.ts index.ts; do
     if ! diff -q '$ROOT/server/src/vendor/shared/'\$f '$ROOT/client/src/vendor/shared/'\$f; then
       status=1
     fi
   done
-  for f in contracts/eval-ci.ts contracts/productionize.ts contracts/trace.ts; do
+  for f in contracts/productionize.ts; do
     printf 'known-divergent, deliberately not gated: %s\n' \"\$f\"
   done
   exit \$status

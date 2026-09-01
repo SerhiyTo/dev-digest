@@ -1,0 +1,90 @@
+import type { CSSProperties } from "react";
+
+export const s = {
+  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    padding: "14px 18px",
+    borderRadius: 9,
+    border: "1px solid var(--border)",
+    background: "var(--bg-elevated)",
+  } satisfies CSSProperties,
+  avatar: {
+    display: "inline-grid",
+    placeItems: "center",
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    background: "var(--accent-bg)",
+    color: "var(--accent)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  identity: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    minWidth: 0,
+    flex: 1,
+  } satisfies CSSProperties,
+  nameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    minWidth: 0,
+  } satisfies CSSProperties,
+  name: {
+    fontSize: 14.5,
+    fontWeight: 600,
+    color: "inherit",
+    textDecoration: "none",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  } satisfies CSSProperties,
+  meta: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  configure: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "var(--accent-text)",
+    textDecoration: "none",
+  } satisfies CSSProperties,
+  sparkline: {
+    display: "flex",
+    alignItems: "center",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  metrics: {
+    display: "flex",
+    gap: 22,
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  metric: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 3,
+    minWidth: 58,
+  } satisfies CSSProperties,
+  metricLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.07em",
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  metricValue: {
+    fontSize: 19,
+    fontWeight: 700,
+    letterSpacing: "-0.02em",
+  } satisfies CSSProperties,
+  chevron: {
+    display: "inline-grid",
+    placeItems: "center",
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+} as const;

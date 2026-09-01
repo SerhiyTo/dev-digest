@@ -1,0 +1,91 @@
+import type { CSSProperties } from "react";
+
+export const s = {
+  wrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    padding: 20,
+  } satisfies CSSProperties,
+  headerRow: {
+    display: "flex",
+    gap: 16,
+  } satisfies CSSProperties,
+  runHeader: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    padding: 10,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-elevated)",
+  } satisfies CSSProperties,
+  runLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  runMeta: {
+    fontSize: 12,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+  } satisfies CSSProperties,
+  th: {
+    textAlign: "left",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+    padding: "6px 10px",
+    borderBottom: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  tdLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+    padding: "8px 10px",
+    borderBottom: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  td: {
+    fontSize: 13,
+    color: "var(--text-secondary)",
+    padding: "8px 10px",
+    borderBottom: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  promptSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  } satisfies CSSProperties,
+  promptTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    margin: 0,
+  } satisfies CSSProperties,
+  promptMessage: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    margin: 0,
+  } satisfies CSSProperties,
+  promptText: {
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "var(--text-primary)",
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    padding: 10,
+    margin: 0,
+    maxHeight: 220,
+    overflow: "auto",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  } satisfies CSSProperties,
+} as const;

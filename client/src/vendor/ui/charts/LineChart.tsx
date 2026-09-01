@@ -12,7 +12,7 @@ import {
 export interface ChartSeries {
   name: string;
   color: string;
-  data: number[];
+  data: (number | null)[];
 }
 
 export function LineChart({
@@ -30,9 +30,9 @@ export function LineChart({
 }) {
   const n = series[0]?.data.length ?? 0;
   const rows = Array.from({ length: n }, (_, i) => {
-    const row: Record<string, number> = { i };
+    const row: Record<string, number | null> = { i };
     series.forEach((s) => {
-      row[s.name] = s.data[i] ?? 0;
+      row[s.name] = s.data[i] ?? null;
     });
     return row;
   });
@@ -58,6 +58,7 @@ export function LineChart({
               stroke={s.color}
               strokeWidth={2}
               dot={false}
+              connectNulls
               isAnimationActive={false}
             />
           ))}

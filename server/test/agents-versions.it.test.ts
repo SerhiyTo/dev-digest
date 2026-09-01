@@ -164,7 +164,9 @@ d('GET /agents/:id/versions', () => {
       systemPrompt: 'x',
     });
 
-    const service = new AgentsService({ db } as unknown as Container);
+    const service = new AgentsService({ db } as unknown as Container, {
+      deleteCasesForOwner: async () => 0,
+    });
     const [{ id: defaultWs }] = await db
       .select({ id: t.workspaces.id })
       .from(t.workspaces)

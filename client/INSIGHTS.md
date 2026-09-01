@@ -9,8 +9,68 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 ## What Works
 <!-- Approaches, patterns, and solutions that have proven effective here -->
 
+- 2026-08-31: a card that is ENTIRELY wrapped in one `<Link>` cannot grow a
+  second link inside it (nested anchors are invalid HTML) and its accessible
+  name is the concatenation of every string it renders — `EvalAgentCard`'s
+  wrapper link was named "Security Reviewer 75% 90% 50% v3 Ran at 5m 6/8
+  passed". Moving the anchor onto the agent NAME (card becomes a plain `<div>`)
+  both frees the card to hold a create-affordance link and narrows the
+  accessible name to exactly the agent name, which is what
+  `e2e/specs/11-evals.flow.json` selects on. `agent-browser`'s `--name` is a
+  case-insensitive SUBSTRING match, so the flow kept working across that change
+  — but assert the link's name AND its href in the colocated test, because
+  nothing else connects the component to the flow (evidence:
+  client/src/app/evals/_components/EvalAgentCard/EvalAgentCard.tsx:83-87;
+  client/src/app/evals/page.tsx:78-89; e2e/INSIGHTS.md 2026-08-23 substring entry)
+
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-09-01: an absence-only assertion cannot tell "correctly absent" from
+  "rendered nothing at all". Four tests written this session passed while the
+  code they covered was DELETED — proved by mutation: removing EvalCaseList's
+  whole empty-state block, dropping `onClick={onRun}`, making `EvalsTab` return
+  `null`, and forcing `EvalRecentRunsTable` into its empty branch each left the
+  relevant test green. ALWAYS pair `queryByX(...).not.toBeInTheDocument()` with a
+  positive anchor proving the component rendered, and when a test's title claims
+  it wires N callbacks, click all N — a control left disabled by the fixture is
+  never exercised (evidence:
+  client/src/app/agents/[id]/_components/EvalsTab/_components/EvalCaseList/EvalCaseList.test.tsx;
+  client/src/app/evals/_components/EvalRecentRunsTable/EvalRecentRunsTable.test.tsx)
+- 2026-09-01: `<ProgressBar value={metric ?? 0} />` is the SAME "not computed"
+  bug the text renderers already guard against, and it is worse because it is
+  invisible to the usual test. A 0-width bar still paints its full-width grey
+  TRACK, so a cancelled run whose metrics are null showed three empty bars
+  reading as 0% — while `expect(textContent).not.toMatch(/%/)` passed, because
+  the defect is the track, not a number. Render no bar at all when the metric is
+  null, and assert the bar's ABSENCE (`data-metric-bar`), not just the absence
+  of a percentage (evidence:
+  client/src/app/evals/[agentId]/_components/EvalRunTable/EvalRunTable.tsx:159;
+  client/src/app/evals/[agentId]/_components/EvalRunTable/EvalRunTable.test.tsx
+  "draws no metric bar at all")
+- 2026-08-30: a leaf component that gates a required affordance on an OPTIONAL callback prop passes its own colocated test while the integrated page silently drops the affordance — `EvalCaseButton` renders its "Open eval case" control only `{onOpen && …}`, and `FindingsPanel` never passes `onOpen`, so the finding-card confirmation offers no way to open the created case anywhere in the running app. When an acceptance criterion demands an affordance, assert it on the component that owns the mutation as well as on the leaf (evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/EvalCaseButton/EvalCaseButton.tsx:44-50; client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.tsx:113-126)
+- 2026-08-30: wiring a NEW `lib/hooks/*` mutation into an EXISTING component that
+  already has a passing test breaks that test if the test doesn't already mock
+  hooks — `useMutation` (and thus any `lib/hooks/evals.ts` hook built on it)
+  calls `useQueryClient()` internally, which throws synchronously on render
+  ("No QueryClient set, use QueryClientProvider to set one") the instant the
+  component mounts, before the mutation is ever invoked; there is no way to
+  guard this with a conditional call (Rules of Hooks) or a try/catch around the
+  hook call that doesn't itself count as papering over the crash. T27 of
+  `docs/plans/2026-08-30-eval-pipeline.md` added `useCreateEvalCaseFromFinding()`
+  to `FindingsPanel.tsx` exactly per the plan's `Do`, and it broke 9 tests in
+  `FindingsPanel.test.tsx` plus 2 in the entirely unrelated
+  `ReviewRunAccordion.test.tsx` (which renders `FindingsPanel` internally) —
+  both mock `lib/hooks/reviews` already (the established per-component pattern:
+  `vi.mock(".../lib/hooks/reviews", () => ({ useFindingAction: () => ({...}) }))`)
+  but neither mocks `lib/hooks/evals`, so the real hook body ran unmocked. A
+  task whose `Files:` list is only the `.tsx` component(s), not their `.test.tsx`
+  siblings, cannot fix this without going outside its own file list — check
+  BEFORE adding a hook call whether every existing consumer test already mocks
+  that hook's module, not just whether the target component's own test does
+  (evidence: `client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.test.tsx`
+  no `vi.mock` for `lib/hooks/evals`; same gap in
+  `.../ReviewRunAccordion/ReviewRunAccordion.test.tsx`; error reproduced at
+  `src/lib/hooks/evals.ts:181` `useCreateEvalCaseFromFinding`'s `useQueryClient()`).
 - 2026-08-24: composing an existing feature card INTO a new section component
   (`IntentCard`/`BlastRadiusCard` moved inside `BriefPanel` for the PR Brief
   feature) requires deleting the old top-level mount in the same commit, or the
@@ -52,6 +112,323 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Codebase Patterns
 <!-- Module-specific conventions, architecture decisions, naming patterns -->
+- 2026-09-01: a pure `lib/*.ts` module must return the DATA a label needs, never
+  the rendered label — it has no `t`, so any English it returns escapes next-intl
+  entirely. `formatDeltaLabel` returned `"+4 pts"` and reached the screen through
+  `MetricCard.deltaLabel`; it is now `deltaLabelDescriptor`, returning
+  `{ key, amount }` that the component feeds to
+  `eval.metricStrip.{deltaUp,deltaDown,deltaFlat}`. Same shape as the `lib/brief.ts`
+  `costLine` entry below (evidence: client/src/lib/evals.ts `deltaLabelDescriptor`;
+  client/messages/en/eval.json `metricStrip.delta*`)
+- 2026-09-01: `MetricCard` picks its arrow and colour from the SIGN of `delta`
+  while printing `deltaLabel`, so passing the unrounded fraction as `delta` and a
+  rounded label put a green up-arrow beside the text `±0 pts` on any
+  sub-half-point move. Feed both from the same rounded number
+  (`metricDeltaPoints`) (evidence:
+  client/src/app/evals/[agentId]/_components/EvalMetricCards/EvalMetricCards.tsx;
+  client/src/vendor/ui/charts/MetricCard.tsx)
+- 2026-09-01: on `/evals` the e2e selector is a **substring** match
+  (`find role link --name "Security Reviewer"`), so a page may hold at most ONE
+  link whose accessible name contains an agent name. That constraint drove three
+  decisions on the redesigned dashboard: the agent row's chevron is `aria-hidden`
+  rather than a second link, the row is not wrapped in a `<Link>`, and the
+  cross-agent run table links its **version** cell (`v7`) while leaving the agent
+  name as plain text. `EvalRecentRunsTable.test.tsx` asserts the ABSENCE of an
+  agent-named link — the presence assertions would all still pass if a second one
+  appeared (evidence:
+  client/src/app/evals/_components/EvalRecentRunsTable/EvalRecentRunsTable.test.tsx;
+  client/src/app/evals/_components/EvalAgentRow/EvalAgentRow.test.tsx asserts
+  `getAllByRole("link")` has length 1)
+- 2026-09-01: there is NO endpoint returning eval runs across agents, and
+  `EvalDashboard.trend` carries neither `agent_version` nor the passed/total
+  tally, so a cross-agent run table cannot be built from `GET /evals` alone.
+  `useEvalSuiteRunsForAgents` fans out with TanStack `useQueries` under the SAME
+  `evalSuiteRunsKey(agentId)` that `useEvalSuiteRuns` uses, so navigating into an
+  agent's own dashboard afterwards is a cache hit, not a refetch. Reuse that key
+  for any future fan-out rather than inventing a list key (evidence:
+  client/src/lib/hooks/evals.ts `useEvalSuiteRunsForAgents`;
+  client/src/app/evals/helpers.ts `recentRunsAcrossAgents`)
+- 2026-09-01: correction to the 2026-09-01 correction directly below — the eval
+  surface is split on TIME, not on metrics. `EvalsTab` does NOT keep only
+  eval-case CRUD: it also renders `EvalMetricsSummary`, the latest completed
+  run's recall / precision / citation accuracy plus a traces-passed tally.
+  `app/evals/[agentId]` owns everything that compares runs to EACH OTHER — the
+  trend, the run table, selection and compare. Stripping every number out of the
+  tab was the user's stated complaint, because "is my set passing right now" is
+  asked while EDITING the set and must not cost a navigation. The two surfaces
+  share `lib/evals.ts`, never a component — a `_components` folder stays private
+  to its route (evidence:
+  client/src/app/agents/[id]/_components/EvalsTab/_components/EvalMetricsSummary/;
+  client/src/app/agents/[id]/_components/EvalsTab/EvalsTab.test.tsx asserts both
+  the metrics present and "Metric trend"/"Recent runs" absent)
+- 2026-09-01: `EvalRunRecord.actual_output` is `z.unknown()` on the wire and has
+  TWO shapes the client must tell apart — `outcome.review` (an object with
+  `findings: Finding[]`) on success, and `{ error: message }` when the case threw
+  (server/src/modules/eval/runner.ts:174,193). Any client count derived from it
+  must return null, NEVER 0, for the error shape: "the run failed" and "the agent
+  found nothing" are different statements and one keystroke apart. The per-case
+  rows only reach the client through `GET /eval-suite-runs/:id`, and a case run
+  singly via `useRunEvalCase` writes `suite_run_id: null`, so it is absent from
+  that list — the UI must degrade to "expected N findings" with no `got` clause
+  rather than inventing `got 0` (evidence:
+  client/src/app/agents/[id]/_components/EvalsTab/_components/EvalCaseList/helpers.ts
+  `gotFindingCount`; its colocated helpers.test.ts)
+- 2026-09-01: correction — the 2026-08-31 "tab body goes NEXT TO the editor
+  shell" entry below still states the placement RULE correctly, but its running
+  example is reversed: the eval metrics, trend and run history moved back OUT of
+  `EvalsTab` onto a real page at `app/evals/[agentId]/page.tsx`, and
+  `EvalsTab` now keeps only eval-case CRUD. Split a surface on WHOSE BREADCRUMB
+  IT IS, not on which route currently owns the data: reading a regression is
+  `Skills Lab › Eval Dashboard › <Agent>`, authoring a case is
+  `Skills Lab › Agents › <Agent>`. Nesting the first under the second is what
+  forced `/evals/[agentId]` to exist purely as a `redirect()` (evidence:
+  client/src/app/evals/[agentId]/page.tsx;
+  client/src/app/agents/[id]/_components/EvalsTab/EvalsTab.tsx)
+- 2026-09-01: when two ROUTES need the same domain helpers, they go to
+  `src/lib/<domain>.ts` — never imported across `_components/` folders. A
+  `_components/` directory is private to its route, so
+  `app/evals/**` reaching into `app/agents/[id]/_components/EvalsTab/_components/**`
+  is the exact import direction the placement rules forbid, and the deeper
+  folder is also the one most likely to be deleted. The eval metric formatters,
+  delta maths, `fallenMetrics`, the run-state predicates and the selection
+  helpers therefore live in `src/lib/evals.ts` as a peer of `lib/cost.ts` and
+  `lib/time.ts`, with their acceptance tests in `src/lib/evals.test.ts`
+  (evidence: client/src/lib/evals.ts; client/src/lib/evals.test.ts;
+  client/src/app/evals/[agentId]/_components/EvalRunTable/EvalRunTable.tsx imports `@/lib/evals`)
+- 2026-08-31: a `NAV[].key` in `src/vendor/ui/nav.ts` is not a free-form label —
+  it is simultaneously (a) a JSON path into `messages/en/shell.json`'s `nav.*`
+  block, resolved by `useShellCommands` as `t(\`nav.${it.key}\`)` for EVERY nav
+  item on EVERY shell mount, and (b) the value `activeKeyFor` must return for
+  the sidebar entry to highlight. Nothing typechecks either coupling. Adding
+  `{ key: "evals", … }` when `shell.json` declared `nav.eval` and `activeKeyFor`
+  already returned `"eval"` threw `MISSING_MESSAGE: Could not resolve
+  'shell.nav.evals'` on every page in the app and left the entry unhighlighted
+  on its own route — with `pnpm typecheck`, 498 tests and the build all green.
+  ALWAYS grep `messages/en/shell.json` for the exact key and read `activeKeyFor`
+  before adding a NAV item, and match the hardcoded `label` to the `nav.*`
+  value the way every other item does (evidence:
+  client/src/vendor/ui/nav.ts:36; client/messages/en/shell.json `nav.eval`;
+  client/src/components/app-shell/helpers.ts:36;
+  client/src/components/app-shell/hooks/useShellCommands.ts:24)
+- 2026-08-31: `messages/en/*.json` in this repo is a DESIGN CONTRACT written
+  before the code, not a bag the feature fills in — `agents.json`'s
+  `editor.tabs.{evals,stats,ci}` and `eval.json`'s whole `evalsTab` block
+  predate the eval pipeline. A declared-but-unreferenced key is therefore a
+  signal that a surface has not been built or has been built beside the design,
+  and a NEW key whose string duplicates an existing one (`trendChart.title`
+  vs `dashboard.metricTrend`, `runList.heading` vs `dashboard.recentRuns`,
+  `metricStrip.metricNames.*` vs `dashboard.metrics.*`/`dashboard.legend.*`)
+  is the defect, not the missing key. Before adding a key, grep the file for
+  the label you are about to write (evidence: client/messages/en/agents.json
+  `editor.tabs`; client/messages/en/eval.json `evalsTab`; the four blocks this
+  feature added, three of which were deletable duplicates)
+- 2026-08-31: a tab body with its own component cluster goes NEXT TO the editor
+  shell, not inside it. `frontend-ui-architecture` caps nesting at
+  `_components/<Parent>/_components/<Child>/`, so putting the eval surface at
+  `AgentEditor/_components/EvalsTab/_components/EvalRunList/` (which is where
+  colocation and consistency with `ConfigTab`/`SkillsTab`/`ContextTab` both
+  point) would need a third `_components` level. `EvalsTab` therefore sits at
+  `app/agents/[id]/_components/EvalsTab/` as a sibling of `AgentEditor`, which
+  imports it as `../EvalsTab`; the other three tabs stay where they are because
+  they are one file each. Two pre-existing three-level paths under
+  `pulls/[number]/_components/OverviewTab/` are the violation, not the
+  precedent (evidence:
+  client/src/app/agents/[id]/_components/EvalsTab/;
+  client/src/app/agents/[id]/_components/AgentEditor/AgentEditor.tsx imports
+  `../EvalsTab`)
+- 2026-08-31: addendum to the page-scope-test entry below — the cheapest way
+  out of those four mock factories is to not need them. Moving a surface from
+  an `app/**/page.tsx` into a tab component that takes its id as a PROP drops
+  both the `next/navigation` mock (no `useParams`) and the
+  `@/components/app-shell` mock (the shell belongs to the page above), leaving
+  only the feature's own `lib/hooks/*` factory (evidence:
+  client/src/app/agents/[id]/_components/EvalsTab/EvalsTab.test.tsx, converted
+  from the four-mock `app/evals/[agentId]/page.test.tsx`)
+- 2026-08-31: a PAGE-scope test for an `app/**/page.tsx` needs
+  `vi.mock("@/components/app-shell")` on top of the mocks for the page's own
+  `lib/hooks/*` — `AppShell` reaches `usePulls`/`useDeleteRepo` through
+  `useShellContext`, so a page whose every own hook is mocked STILL throws "No
+  QueryClient set" from the shell chrome alone; and `useParams` must be mocked
+  because the route param is read from `next/navigation`, not passed as a prop.
+  With those four factories (`next/navigation`, `@/components/app-shell`,
+  `@/lib/hooks/agents`, `@/lib/hooks/evals`) the page renders synchronously and
+  needs no `QueryClientProvider` and no `findBy*`, so a page test costs about as
+  much as a component test (evidence:
+  client/src/app/evals/[agentId]/page.test.tsx;
+  client/src/components/app-shell/hooks/useShellContext.ts:28-29)
+- 2026-08-30: correction — the entry below that REMOVED `EvalRunList`'s "Compare selected runs" button has been reversed. AC-44 requires a control whose `disabled` attribute is observable at 0, 1, 2 and 3 selections, and an implicit "open the modal the moment `selectedRunIds.length === 2`" cannot be observed that way; it also left `eval.runList.compare`/`compareHint` referenced by nothing. The button is back with `disabled={!isCompareReady(selected)}` and an `onCompare?: (selectedRunIds: string[]) => void` prop, and `page.tsx` now holds a `compareOpen` flag that the button sets and any selection change clears (evidence: client/src/app/evals/[agentId]/_components/EvalRunList/EvalRunList.tsx `compareReady`; client/src/app/evals/[agentId]/page.tsx `compareOpen`)
+- 2026-08-30: `EvalCompare` carries ONE server-computed patch, `prompt_diff` (built by `skillBodyPatch`), not the two snapshots' prompts — so `EvalCompareRunInput` must not carry a per-run `systemPrompt`. Passing the same patch string into both runs printed it twice under "Older"/"Newer" headings and made the availability check compare a value with itself. The modal now takes `promptDiff: string | null` and renders it once, with `promptDiffState(promptDiff, sameVersion)` choosing between `unavailable` (null), `same_version`, `unchanged` (empty patch — `skillBodyPatch` returns `''` when there are no hunks) and `patch` (evidence: client/src/app/evals/[agentId]/_components/EvalCompareModal/helpers.ts `promptDiffState`; server/src/modules/eval/service.ts `compareRuns`)
+- 2026-08-30: a nullable aggregate from a contract is rendered as "not computed", NEVER coerced with `?? 0`. `eval_suite_runs.cases_passed`/`cases_total` are written only by `finish()`, so every `running`, `failed` and `cancelled` row carries null there and "0 of N passed" would be indistinguishable from a suite where every case failed. `EvalAgentCardRun.casesPassed`/`.agentVersion` are `number | null` for the same reason and render the same `—` the three metric props already did (evidence: client/src/app/evals/[agentId]/_components/EvalRunList/helpers.ts `caseTally`; client/src/app/evals/_components/EvalAgentCard/EvalAgentCard.tsx `NOT_COMPUTED`)
+- 2026-08-30: correction to gap (2) in the entry below (`caseRuns` scoped to
+  only the latest suite run) — fixed by giving `EvalRunList` an
+  `onExpandedChange?: (runId: string | null) => void` prop fired on row
+  expand/collapse, and having `page.tsx` call the already-existing
+  `useEvalSuiteRun(expandedRunId)` hook (`GET /eval-suite-runs/:id`, which
+  returns `{ suite_run, runs }` for **any** run regardless of status) instead
+  of feeding `EvalRunList.caseRuns` from `dashboardQuery.data?.recent_runs`.
+  No new hook was needed — `useEvalSuiteRun` already existed in
+  `lib/hooks/evals.ts`, unused until this wiring. Expanding a cancelled row,
+  or any non-latest row, now shows its real per-case rows (AC-62) instead of
+  an empty list (evidence: client/src/app/evals/[agentId]/page.tsx
+  `expandedRunQuery`; .../_components/EvalRunList/EvalRunList.tsx
+  `onExpandedChange`/`handleToggleExpanded`).
+- 2026-08-30: `EvalRunList`'s "Compare selected runs" button had no click
+  handler and no `onCompare` prop, and its own AC-44 test only ever asserted
+  the button's `disabled` state — never clicked it — so a dead control passed
+  review unnoticed. Removed the button entirely rather than wiring it up:
+  `page.tsx` already opens `EvalCompareModal` the moment
+  `selectedRunIds.length === 2` (`compareRunIds` derivation in `page.tsx`), so
+  an explicit button click would have been a second, redundant trigger for the
+  same action. The AC-44 substance (enable-at-exactly-two) now lives entirely
+  in that page-level derivation and in what `onSelectionChange` reports; a
+  future component that needs a VISIBLE compare affordance should call
+  `onSelectionChange`'s reported array to decide `disabled`, not add a second
+  internal `compareDisabled` computation the way the removed button had
+  (evidence: client/src/app/evals/[agentId]/_components/EvalRunList/EvalRunList.tsx
+  before/after; client/src/app/evals/[agentId]/page.tsx `compareRunIds`).
+- 2026-08-30: T26 (`/evals/[agentId]/page.tsx`) found two real data-sourcing gaps
+  left by the wave-3/wave-4 split, both worth fixing in a follow-up rather than
+  papering over from the page: (1) NO client hook anywhere fetches a historical
+  `agent_versions` snapshot's `system_prompt` — `hooks/agents.ts` only has
+  `useAgent`/`useAgents` (current config, not a past version), yet
+  `EvalCompareModal` (T17) wants each compared run's own raw prompt text via
+  `EvalCompareRunInput.systemPrompt`. The page instead calls the already-built
+  `useEvalCompare` (T21) and feeds its server-computed `prompt_diff` string as
+  BOTH sides' `systemPrompt` when `prompt_diff_unavailable` is false — this
+  keeps `isPromptDiffUnavailable`/`isSameAgentVersion` correct (real signals)
+  but means the modal's "older" and "newer" prompt panels show the *same* diff
+  text rather than each side's actual full prompt. A real fix needs a
+  `useAgentVersion(agentId, version)` hook hitting the already-existing
+  `GET /agents/:id/versions/:version` route (`server/src/modules/agents/routes.ts:140-146`),
+  added to `hooks/agents.ts` — out of T26's `Files:` list. (2) `EvalRunList`'s
+  `caseRuns` prop wants every per-case run row across every suite run so its
+  internal per-row expansion can show "cases that ran" for ANY row, but the only
+  hook that returns `EvalRunRecord[]` without a specific known `suiteRunId` is
+  `useEvalDashboard`'s `recent_runs` field, and the server scopes that to only
+  the agent's LATEST suite run (`server/src/modules/eval/service.ts:328-331`
+  `listRunsBySuiteRun(workspaceId, latest.id)`). T26 passes `recent_runs`
+  through as-is, so expanding any run OTHER than the newest one renders an empty
+  per-case list — not wrong data, just incomplete for older rows. Needs either a
+  new "all case runs for this agent" endpoint/hook, or `EvalRunList` gaining a
+  per-row lazy-fetch capability it does not have today (evidence:
+  client/src/app/evals/[agentId]/page.tsx `compareRunA`/`compareRunB`/`caseRuns`;
+  client/src/lib/hooks/agents.ts; server/src/modules/eval/service.ts:305-341 `getDashboard`).
+- 2026-08-30: `Modal` (`vendor/ui/kit/Modal.tsx`) renders its OWN dismiss
+  control when given `onClose` — an `IconBtn` with a hardcoded `label="Close"`
+  in the header, not something the caller supplies — so a modal wrapping a
+  child that has no cancel/close button of its own (T26 wrapping
+  `EvalCaseEditor`, which only exposes Save) needs no extra footer button and
+  no new i18n key; passing `onClose` alone is sufficient and avoids inventing a
+  `caseEditor.cancel`/`close` message key that T6's `eval.json` never defined
+  (evidence: client/src/vendor/ui/kit/Modal.tsx:57 `<IconBtn icon="X"
+  label="Close" onClick={onClose} />`; client/src/app/evals/[agentId]/page.tsx
+  case-editor `<Modal onClose={...}>` with no footer).
+- 2026-08-30: T25's `/evals` dashboard — `EvalDashboard` (the `GET /evals`
+  response entry per agent) carries `owner_id` but NO agent name field, so the
+  page must separately call `useAgents()` and join by `owner_id === agent.id`
+  to render `EvalAgentCard`'s required `agentName` prop; do not assume a
+  dashboard-shaped contract carries its own display name. Also: `current.*`
+  (recall/precision/citation_accuracy/traces_passed/traces_total) already IS
+  the latest completed suite run's aggregate (server sets it from
+  `suiteRunStore.recentCompleted(...)[0]`, `service.ts:291-307`), but the run's
+  `agent_version` and `ran_at` are NOT on `current` or `trend` — they only
+  exist per-row on `recent_runs` (`EvalRunRecord[]`, the case-level rows of
+  that one suite run), ordered newest-first
+  (`repository.ts:239` `orderBy(desc(t.evalRuns.ranAt))`), so `recent_runs[0]`
+  is the correct source for both fields, and `recent_runs.length === 0` is the
+  correct "never had a completed run" test (mirrors the server's own `latest`
+  null-check) rather than checking `current.recall == null` (which is also true
+  for a completed run with zero `must_find` cases) (evidence:
+  server/src/modules/eval/service.ts:280-343 `getDashboard`;
+  server/src/modules/eval/repository.ts:231-241 `listRunsBySuiteRun`;
+  client/src/app/evals/page.tsx `latestRunFromDashboard`).
+- 2026-08-30: `messages/en/eval.json`'s `page` namespace holds only breadcrumb
+  labels (`crumbSkillsLab`, `crumbEvals`, `crumbEvalDashboard`, `crumbAgents`,
+  `crumbNewCase`, `crumbEvalCase`) — there is no page-level title/subtitle/
+  empty-state/error string for the `/evals` index the way `agents.json`'s
+  `list.*` block has one for `/agents`. T25 reused `dashboard.defaultTitle`
+  ("Eval Dashboard") for the h1 and fell back to the already-established
+  cross-page `common.json` `states.empty`/`states.loading` namespace (see
+  `OnboardingView.tsx`'s `useTranslations("common")` precedent) rather than
+  inventing new eval.json keys outside its `Files:` ownership. A future task
+  that wants a more specific "no agents have eval cases yet" empty-state body
+  needs that key added by whichever task owns `eval.json` next (evidence:
+  client/messages/en/eval.json `page`/`dashboard` blocks;
+  client/messages/en/common.json `states`; client/src/app/evals/page.tsx).
+- 2026-08-30: T21's `Files:` list ownership was `hooks/evals.ts` + `hooks/index.ts`
+  only — no component `helpers.ts` was available to hold the established
+  `err.code` → label mapping (the `DocAttachPanel/helpers.ts` `saveErrorText`
+  shape: a pure function taking `(error, labels)` where `labels` is supplied by
+  the caller from next-intl, keeping the strings out of the data layer). The
+  same shape was relocated straight into the hooks file — `evalErrorText(error,
+  labels: EvalErrorLabels)` in `hooks/evals.ts` — rather than invented fresh, so
+  a wave-5 page importing it gets the exact same `error instanceof ApiError` +
+  `switch (error.code)` + `labels.unknown(error.message)` contract as every
+  other error-mapping helper in this codebase, just one file up from where it
+  usually lives. Reuse it, do not write a second `evalErrorText`-shaped
+  function nearer a component once one exists (evidence:
+  client/src/lib/hooks/evals.ts `EvalErrorLabels`/`evalErrorText`;
+  client/src/components/doc-attach/helpers.ts `SaveErrorLabels`/`saveErrorText`).
+- 2026-08-30: `@devdigest/ui`'s `LineChart` (`src/vendor/ui/charts/LineChart.tsx`)
+  is unsafe for a nullable metric series — its `ChartSeries.data` is typed
+  `number[]` and any missing point is coerced with `s.data[i] ?? 0`, so a
+  `null` value (e.g. `EvalTrendPoint.recall` when a run had no `must_find`
+  cases) would silently plot as a collapse to zero instead of a gap. T15
+  (`EvalTrendChart`) could not touch that vendored file (out of its `Files:`
+  list) so it built its own inline SVG instead — filter each series to its
+  non-null points before building the `polyline`, plot circles only at known
+  points, and never feed a coerced `0` into a metric chart. Any future trend
+  chart over a nullable metric needs the same filter-before-plot approach or
+  its own local renderer, not the shared `LineChart` (evidence:
+  client/src/vendor/ui/charts/LineChart.tsx:34 `s.data[i] ?? 0`;
+  client/src/vendor/shared/contracts/eval-ci.ts:127-133 `EvalTrendPoint`
+  nullable `recall`/`precision`/`citation_accuracy`;
+  client/src/app/evals/[agentId]/_components/EvalTrendChart/EvalTrendChart.tsx).
+- 2026-08-30: `messages/en/eval.json` is loaded as ONE next-intl namespace
+  named `eval` (the filename), with every top-level key (`trendChart`,
+  `metricStrip`, `evalsTab`, …) as a nested path inside it — the working
+  pattern already established by `EvalCaseList.tsx` and `EvalAgentCard.tsx` is
+  `useTranslations("eval.trendChart")` in components and
+  `messages={{ eval: messagesJson }}` in tests, not a per-top-level-key
+  namespace. A component may call `useTranslations` a second time for a
+  DIFFERENT top-level key in the same file (`eval.metricStrip`) to reuse an
+  existing label set (`metricNames.recall`/`precision`/`citationAccuracy`)
+  instead of duplicating those three strings under `trendChart` — reuse across
+  a shared JSON file's own namespaces is not "inventing a key" (evidence:
+  client/src/i18n/request.ts `loadMessages`; EvalTrendChart.tsx two
+  `useTranslations` calls; EvalTrendChart.test.tsx `messages={{ eval:
+  messages }}`).
+- 2026-08-30: `dashboard.neverRun` in `eval.json` covers "this agent has never
+  completed a run" (AC-39) but the catalogue carries no "not computed"
+  counterpart for an individual nullable metric on an agent that HAS run
+  (`EvalDashboard.current.recall` etc. are nullable after T2 for that reason
+  too — a completed run with zero `must_find` expectations still reports
+  `recall: null`). `EvalAgentCard` (T13) renders that per-metric null case with
+  a bare "—" rather than borrowing `metricStrip.notComputed` from a different
+  component's namespace or inventing a new key outside T6's ownership — the
+  same fallback `lib/time.ts`'s `relativeTime()` already uses for a missing
+  timestamp, so it reads as an established repo convention rather than a
+  one-off. A card-list component one level up the ownership chain that needs
+  the words "not computed" for this state, not just the glyph, has to get that
+  key added by whichever task owns the eval message file next (evidence:
+  client/src/app/evals/_components/EvalAgentCard/EvalAgentCard.tsx
+  `formatPercent`; client/src/lib/time.ts `relativeTime` returning "—";
+  client/messages/en/eval.json has `metricStrip.notComputed` but no
+  `dashboard.notComputed`)
+- 2026-08-30: a plan's `Files:` list for a messages task can include a file
+  that needs no actual edit — T6 of `docs/plans/2026-08-30-eval-pipeline.md`
+  lists `client/messages/en/agents.json` as owned/edited, but its Do paragraph
+  never names any string to add there, and none of the wave-3/5 tasks that
+  consume the eval message catalogue touch any `AgentEditor` file. The existing
+  `agents.json` keys (`editor.agentFallback`, `editor.loadErrorTitle`,
+  `editor.loadErrorBody`) already cover the one plausible need (showing agent
+  context/error state on the new `/evals/[agentId]` page), so the file was left
+  untouched rather than padded with speculative keys nobody reads. Being listed
+  in `Files:` grants edit rights for that file to one task, not an edit
+  requirement — audit for actual consumers before adding content on the
+  strength of the list alone (evidence:
+  docs/plans/2026-08-30-eval-pipeline.md T6 and T13–T20/T25–T27 `Files:` lines;
+  client/messages/en/agents.json `editor.agentFallback`/`loadErrorTitle`/`loadErrorBody`)
 - 2026-08-24: an `{a && b && (<JSX/>)}` gate built from two independent
   conditions (`review && meta`, `blockingReasons.length > 0`) hides a reachable
   branch when the two conditions are actually independent — `AC-86`'s `ⓘ`
@@ -255,6 +632,68 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Tool & Library Notes
 <!-- Quirks, gotchas, and useful behaviors discovered about dependencies -->
+- 2026-09-01: `MetricCard` renders its delta as `Math.abs(delta).toFixed(2)`, so
+  passing the FRACTION difference the eval metrics work in shows a four-point
+  rise as `0.04` — silently disagreeing with `formatDeltaLabel`, which the
+  regression banner already speaks in "pts". It now takes an optional
+  `deltaLabel` that replaces only the number; the arrow and the colour still come
+  from `delta`'s sign, so omitting it keeps every existing caller unchanged
+  (evidence: client/src/vendor/ui/charts/MetricCard.tsx;
+  client/src/app/agents/[id]/_components/EvalsTab/_components/EvalMetricsSummary/EvalMetricsSummary.tsx)
+- 2026-09-01: `IconName` admits `Edit`, NOT `Pencil`. `Pencil` is imported from
+  lucide and then exposed only under the aliased key `Edit: Pencil`, so
+  `icon="Pencil"` fails `tsc` with a 60-name union in the message — read the
+  `Icon` object at the bottom of the file, not the import list at the top
+  (evidence: client/src/vendor/ui/icons.tsx:146-147, `export type IconName =
+  keyof typeof Icon`)
+- 2026-09-01: correction — the 2026-08-30 `LineChart` entry below told the next
+  session to hand-roll SVG rather than use the shared chart. That is no longer
+  the answer: `ChartSeries.data` is now `(number | null)[]`, the `?? 0` is gone
+  and `<Line connectNulls>` draws the gap, so a nullable metric series is safe
+  on the vendored `LineChart`. Widening the vendored component was cheaper than
+  a third local renderer and non-breaking for `StatsTab`/`Showcase` (evidence:
+  client/src/vendor/ui/charts/LineChart.tsx:15,61;
+  client/src/app/evals/[agentId]/_components/EvalTrendPanel/EvalTrendPanel.tsx)
+- 2026-09-01: Recharts renders NOTHING under vitest/jsdom — `ResponsiveContainer`
+  measures 0×0 and logs "The width(0) and height(0) of chart should be greater
+  than 0". A component test can therefore assert nothing about a Recharts chart,
+  and a suite that looks green may be asserting on an empty `<div>`. Keep the
+  accessible textual reading of the series (summary + a `<ul>` of points) in the
+  DOM as a visually-hidden block: it is both the a11y answer and the only
+  surface the test can assert on. `position:absolute; clip:rect(0 0 0 0)` keeps
+  it in `textContent`, so `getByText` and `agent-browser`'s `wait --text` both
+  still see it (evidence:
+  client/src/app/evals/[agentId]/_components/EvalTrendPanel/EvalTrendPanel.tsx:53 `s.srOnly`;
+  client/src/app/evals/[agentId]/_components/EvalTrendPanel/EvalTrendPanel.test.tsx)
+- 2026-09-01: `@devdigest/ui`'s `Checkbox` renders its `label` as VISIBLE text
+  and only sets `aria-label` when that label is a `string` — so wrapping the
+  label in a hidden `<span>` to get a bare checkbox silently strips the
+  control's accessible name. Pass `hideLabel` instead (added for the eval run
+  table), which keeps the string as `aria-label` while dropping it from the
+  layout (evidence: client/src/vendor/ui/kit/Checkbox.tsx:9,14;
+  client/src/app/evals/[agentId]/_components/EvalRunTable/EvalRunTable.tsx)
+- 2026-08-30: RTL's `getByText("multi\nline")` NEVER matches text inside a `<pre>`: the default matcher normalizes whitespace, so a unified-diff patch rendered verbatim cannot be found by its own string. Match it with the matcher-function form instead — `screen.queryAllByText((_, el) => el?.tagName === "PRE" && el.textContent === PATCH)` — which also gives you the "rendered exactly once" assertion (evidence: client/src/app/evals/[agentId]/_components/EvalCompareModal/EvalCompareModal.test.tsx `promptPatchBlocks`)
+- 2026-08-30: `pnpm typecheck` on the whole project can fail on a FILE YOU
+  DID NOT TOUCH when another concurrently-run implementer's task references a
+  package that is not yet installed — e.g. `EvalCompareModal.test.tsx` imports
+  `@testing-library/user-event`, which is not in `package.json` or
+  `node_modules/@testing-library/`. `pnpm typecheck` type-checks `.test.tsx`
+  files too, so this is a whole-tree failure, not scoped to the file that
+  needs the dependency. Before treating a `pnpm typecheck` failure as caused
+  by your own change, `grep` the error for a path outside your task's `Files:`
+  list (evidence: `client/src/app/evals/[agentId]/_components/EvalCompareModal/EvalCompareModal.test.tsx(3,23): error TS2307` while implementing T16 `EvalRunList`, an unrelated sibling folder)
+- 2026-08-30: `pnpm exec vitest related --run "<path>/Foo.tsx"` only follows the
+  DIRECT import graph from that one file — a sibling `helpers.test.ts` that
+  imports `./helpers` but never imports `Foo.tsx` is NOT picked up, even though
+  it lives in the same component folder and Foo.tsx imports the same helpers.
+  A plan's per-task `Verify:` line that names only the component file is
+  therefore not proof the folder's `helpers.test.ts` passes — run
+  `pnpm exec vitest run "<path>"` (the folder, not one file) once as a
+  supplementary check whenever the task also added a `helpers.ts` +
+  `helpers.test.ts` pair (evidence: `EvalCaseEditor/helpers.test.ts` did not
+  run under `vitest related --run ".../EvalCaseEditor.tsx"`, 1 test file/2
+  tests; `vitest run ".../EvalCaseEditor"` picked up both files, 2 test
+  files/5 tests).
 - 2026-08-24: a plan's own `Verify:` line can be a false green if it embeds a
   `client/`-prefixed path AFTER the command already does `cd client` — vitest's
   `include` glob is `src/**/*.test.{ts,tsx}`, so
@@ -376,9 +815,60 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## Recurring Errors & Fixes
 <!-- Errors seen more than once and their confirmed fixes -->
+- 2026-09-01: a message key pointed at the wrong namespace renders the KEY
+  ITSELF and throws only to the console — `useTranslations("eval")` with
+  `t("legend.recall")` resolved nothing, because the real path is
+  `eval.dashboard.legend.recall`. Every test still passed, because they were all
+  phrased as absences (`queryByText("RECALL")` is absent whether the label is
+  missing or merely wrong). ALWAYS assert the rendered label TEXT positively for
+  a component whose labels come from messages, and grep the vitest output for
+  `MISSING_MESSAGE` — vitest does not fail on it (evidence:
+  client/src/app/evals/_components/EvalAgentRow/EvalAgentRow.tsx
+  `METRIC_LABEL_KEYS`; its test now asserts "Recall"/"Precision"/"Citation")
+- 2026-08-30: `Error: invariant expected app router to be mounted` after adding `useRouter()` to a shared component — the failure surfaces in EVERY test that renders it transitively, not just its own. Adding `useRouter` to `FindingsPanel` broke `ReviewRunAccordion.test.tsx`, which never mentions the panel by name. Fix: `vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))` in every affected test file — grep the component's importers before adding a navigation hook (evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.tsx; .../ReviewRunAccordion/ReviewRunAccordion.test.tsx)
 
 ## Session Notes
 <!-- One dated line per session that produced entries: what was accomplished -->
+- 2026-09-01: pr-self-review on the eval-UI slice — 7 auditors, 0 CRITICAL, and
+  the WARNINGs were worth the run: a reintroduced `ProgressBar value={percent ?? 0}`,
+  four mutation-proven vacuous tests, English wording leaking out of `lib/`, a
+  fan-out whose loading state rendered as "no runs yet", and duplicated
+  eval.json keys. All fixed and each fix re-proved by mutation before commit.
+- 2026-09-01: second slice of the eval redesign — rebuilt `/evals` from a card
+  grid into agent rows (model badge, recall sparkline, three metrics, decorative
+  chevron) plus a cross-agent `RECENT EVAL RUNS` table fed by a new
+  `useEvalSuiteRunsForAgents` fan-out; moved `sparklineSeries` into
+  `lib/evals.ts` as `metricTrendSeries`; deleted `EvalAgentCard` after carrying
+  its four invariants onto `EvalAgentRow`. 568/568 and typecheck green; verified
+  in the running app in both themes.
+- 2026-09-01: restored the eval metrics summary into the agent Evals tab and
+  reshaped its case rows to the design (status icon, expected/got, severity chip,
+  icon actions); widened `MetricCard` with `deltaLabel`; rewrote the two spec
+  sections and the three tests that asserted the metrics were absent.
+- 2026-09-01: redesigned the per-agent Eval Dashboard to a supplied mockup — turned `/evals/[agentId]` from a `redirect()` into the real page (header with model badge, agent switcher and a client-side 7/30/90/all range filter, regression banner, three `MetricCard`s, a Recharts `LineChart` trend, and a run table with `ProgressBar` metrics), left eval-case CRUD in the agent tab, extracted the shared helpers to `src/lib/evals.ts`, deleted `EvalMetricStrip`/`EvalTrendChart`/`EvalRunList` after carrying their acceptance assertions onto the new components, and widened the vendored `LineChart` and `Checkbox`. Client 534/534 and typecheck green; verified in the running dev app against real seeded runs in both themes.
+- 2026-08-31: aligned the eval-pipeline UI to the pre-existing message catalogue — fixed the `evals`→`eval` nav key, built the agent editor's Evals tab from the moved `/evals/[agentId]` composition, turned that route into a redirect, and deleted the three invented message keys that duplicated designed ones. Client 498/498 and both typechecks green; observed in the running dev app (sidebar highlights, console clean on `/evals` and `/agents/:id?tab=evals`, redirect lands).
+- 2026-08-31: closed SPEC-04 AC-16 at page scope with `/evals/[agentId]/page.test.tsx`, and AC-68 with `server/test/vendor-mirror-gate.test.ts`.
+- 2026-08-30: SPEC-04 eval-pipeline remediation (client half) — restored the AC-44 compare control and moved the compare modal behind it, reshaped the modal around the server's single `prompt_diff`, wired `onOpenEvalCase` from `FindingsPanel` to `/evals/<ownerId>`, and replaced the `?? 0` coercions on nullable eval aggregates with not-computed rendering.
+- 2026-08-30: SPEC-04 eval-pipeline test-coverage audit — strengthened the EvalAgentCard, EvalMetricStrip, EvalCompareModal and EvalCaseButton tests, and replaced the tautological AC-44 assertion in EvalRunList.test.tsx with the real disabled-at-each-selection-count walk, which is red because no compare control exists.
+- 2026-08-30: T26 of the eval-pipeline plan — built `/evals/[agentId]/page.tsx`
+  composing the six wave-3 components with the T21 hooks: case list + editor
+  (uncontrolled, remounted via `key={editorTarget}`), metric strip fed the
+  latest/second-latest *completed* suite run (not `EvalDashboard.current`/
+  `.delta`), trend chart, run list with page-owned selection/cancel state, and
+  a compare modal opened only at exactly two selections. `helpers.ts` holds the
+  pure snapshot/lookup/mapping functions. Appended two insights on real
+  data-sourcing gaps (missing agent-version-snapshot hook; `caseRuns` scoped to
+  only the latest suite run) and one on `Modal`'s built-in close control. No
+  test file was in this task's `Files:` list, so none was added; `pnpm
+  typecheck` clean, `vitest run src/app/evals` 10 files / 35 tests green.
+- 2026-08-30: T27 of the eval-pipeline plan — wired `EvalCaseButton` into
+  `FindingCard`'s actions row (new optional `onCreateEvalCase`/`onOpenEvalCase`
+  props, rendered only when supplied) and made `FindingsPanel` own the
+  create-from-finding mutation via `useCreateEvalCaseFromFinding()`. Typecheck
+  clean; `FindingCard.test.tsx` and `EvalCaseButton.test.tsx` pass unchanged;
+  `FindingsPanel.test.tsx` (9 tests) and `ReviewRunAccordion.test.tsx` (2
+  tests) now fail because neither mocks `lib/hooks/evals` — outside T27's
+  `Files:` list, reported as blocked rather than edited.
 - 2026-08-24: T9 of the blocking-reasons/design-fidelity amendment — rebuilt
   `BriefVerdictStrip` to always render the merge-risk band (AC-83) with the
   review's verdict/score/donut alongside it when a review exists, moved the

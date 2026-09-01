@@ -1,0 +1,423 @@
+{
+  "name": "Turn a finding into an eval case, list the agent's set, run it twice and compare",
+  "description": "From PR #482's Agent runs tab, expand the top-severity ('Hardcoded Stripe secret key in commit') finding \u2014 already accepted by the seed \u2014 and turn it into an eval case, asserting only the invariant head of the interpolated confirmation. Navigate to the eval dashboard via /evals and open the Security Reviewer's own dashboard page at /evals/:agentId (the card links straight to it; that route used to be a redirect into the agent editor and is now the real page). Assert the header counts the new case (9 = 8 seeded + 1) and that the metric cards stay in the never-run state rather than rendering a fabricated 0%. No provider credential is configured in this environment, so ConfigError is thrown synchronously before any network call is made \u2014 start the suite run and assert it still completes and persists with every one of the 9 cases failing down that path ('0/9'), which is this flow's proof of zero model calls on the real run path. Start a second suite run so two completed, comparable runs exist, select both run checkboxes, click the Compare control that becomes enabled at exactly two selected \u2014 changing the selection closes the modal, so the control is the only thing that opens it \u2014 and assert the compare view's older/newer/difference layout, the all-caps RECALL metric row, the System prompt section, and the same-agent-version statement (both runs ran the unmodified agent, so nothing changed between them). Finally follow the dashboard's 'Configure eval cases \u2192' link into /agents/:id?tab=evals, which still owns eval-case CRUD, and confirm the new case is listed there. Exercises POST /findings/:id/eval-case, GET /agents/:id/eval-cases, POST /agents/:id/eval-runs/start and GET /agents/:id/eval-runs/compare. Assumes a freshly-seeded DB where acme/payments-api (PR #482) is the first repo and the Security Reviewer agent owns exactly 8 seeded eval cases and no suite runs yet (see e2e/README.md).",
+  "steps": [
+    {
+      "cmd": [
+        "open",
+        "{BASE}/"
+      ],
+      "label": "load the app root"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/pulls"
+      ],
+      "label": "land on the PR list so a repo is active"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "PR list data settles"
+    },
+    {
+      "cmd": [
+        "find",
+        "text",
+        "Add rate limiting to public API endpoints",
+        "click"
+      ],
+      "label": "open the seeded PR row"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/pulls/482"
+      ],
+      "label": "navigate to the PR detail route"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "PR detail data settles"
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Agent runs"
+      ],
+      "label": "switch to the Agent runs tab"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "tab=findings"
+      ],
+      "label": "findings tab is active in the URL"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Hardcoded Stripe secret key in commit"
+      ],
+      "label": "the accepted, highest-severity finding is visible and expanded by default"
+    },
+    {
+      "cmd": [
+        "eval",
+        "(()=>{const el=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='Turn into eval case');if(!el)return 'MISSING';el.scrollIntoView({block:'center'});return 'centred'})()"
+      ],
+      "label": "centre the Turn into eval case control before clicking it",
+      "assert": {
+        "stdoutIncludes": "centred"
+      }
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Turn into eval case"
+      ],
+      "label": "create an eval case from the accepted finding"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Created eval case"
+      ],
+      "label": "the client confirms creation (asserting only the invariant head of the interpolated message)"
+    },
+    {
+      "cmd": [
+        "open",
+        "{BASE}/evals"
+      ],
+      "label": "load the eval dashboard"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/evals"
+      ],
+      "label": "eval dashboard route reached"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "dashboard fetch settles"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Eval Dashboard"
+      ],
+      "label": "dashboard heading renders"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Security Reviewer"
+      ],
+      "label": "the agent that owns the new case is listed"
+    },
+    {
+      "cmd": [
+        "find",
+        "testid",
+        "eval-agent-security-reviewer",
+        "click"
+      ],
+      "label": "open that agent's own eval dashboard page"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "/evals/"
+      ],
+      "label": "the per-agent dashboard route is reached, no longer a redirect into the agent editor"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "agent, dashboard and run-history fetches settle"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Regression harness \u00b7 0 runs on the 9-case gold set"
+      ],
+      "label": "the header counts the newly created case alongside the 8 seeded ones, and no run yet"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "never run"
+      ],
+      "label": "the metric cards stay in the never-run state rather than rendering a fabricated 0%"
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Run eval (9)"
+      ],
+      "label": "start the first suite run from the dashboard header"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--fn",
+        "document.querySelectorAll('[role=checkbox]').length===1"
+      ],
+      "label": "the first suite run reached its ('done') terminal state \u2014 a selection checkbox only renders for a done run, never a running one, so this cannot be mistaken for the transient in-progress state"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "0/9"
+      ],
+      "label": "the completed run persisted with every one of the 9 cases failing down the no-provider-credential path, zero model calls made"
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Run eval (9)"
+      ],
+      "label": "start a second suite run so two runs exist to compare"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--fn",
+        "document.querySelectorAll('[role=checkbox]').length===2"
+      ],
+      "label": "both suite runs reached a comparable ('done') terminal state"
+    },
+    {
+      "cmd": [
+        "eval",
+        "(()=>{const el=document.querySelectorAll('[role=checkbox]')[0];if(!el)return 'MISSING';el.scrollIntoView({block:'center'});return 'centred'})()"
+      ],
+      "label": "centre the first run's selection checkbox before clicking it",
+      "assert": {
+        "stdoutIncludes": "centred"
+      }
+    },
+    {
+      "cmd": [
+        "find",
+        "nth",
+        "0",
+        "[role=checkbox]",
+        "click"
+      ],
+      "label": "select the first completed run for comparison"
+    },
+    {
+      "cmd": [
+        "eval",
+        "(()=>{const el=document.querySelectorAll('[role=checkbox]')[1];if(!el)return 'MISSING';el.scrollIntoView({block:'center'});return 'centred'})()"
+      ],
+      "label": "centre the second run's selection checkbox before clicking it",
+      "assert": {
+        "stdoutIncludes": "centred"
+      }
+    },
+    {
+      "cmd": [
+        "find",
+        "nth",
+        "1",
+        "[role=checkbox]",
+        "click"
+      ],
+      "label": "select the second completed run \u2014 at exactly two selected the compare control becomes enabled"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "2 selected"
+      ],
+      "label": "the table's selection counter tracks both picks"
+    },
+    {
+      "cmd": [
+        "eval",
+        "(()=>{const el=[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')==='Compare selected runs');if(!el)return 'MISSING';el.scrollIntoView({block:'center'});return 'centred'})()"
+      ],
+      "label": "centre the compare control before clicking it",
+      "assert": {
+        "stdoutIncludes": "centred"
+      }
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Compare selected runs"
+      ],
+      "label": "open the compare modal \u2014 only this control opens it, and changing the selection closes it again"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Compare runs"
+      ],
+      "label": "the compare modal title renders"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "OLDER"
+      ],
+      "label": "the older-run column is labelled \u2014 asserted in its all-caps rendered form, because styles.ts uppercases both the run header and the table head"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "NEWER"
+      ],
+      "label": "the newer-run column is labelled, likewise all-caps"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "DIFFERENCE"
+      ],
+      "label": "the difference column is labelled, likewise all-caps"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "RECALL"
+      ],
+      "label": "the recall metric row renders in its all-caps form"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "System prompt"
+      ],
+      "label": "the system-prompt diff section renders"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "These runs share the same agent configuration \u2014 nothing changed between them."
+      ],
+      "label": "both runs ran the unmodified agent version, so the modal states nothing changed"
+    },
+    {
+      "cmd": [
+        "find",
+        "role",
+        "button",
+        "click",
+        "--name",
+        "Close"
+      ],
+      "label": "close the compare modal before leaving the dashboard"
+    },
+    {
+      "cmd": [
+        "eval",
+        "(()=>{const el=document.querySelector('[data-testid=\"eval-configure-cases\"]');if(!el)return 'MISSING';el.scrollIntoView({block:'center'});return 'centred'})()"
+      ],
+      "label": "centre the configure link before clicking it",
+      "assert": {
+        "stdoutIncludes": "centred"
+      }
+    },
+    {
+      "cmd": [
+        "find",
+        "testid",
+        "eval-configure-cases",
+        "click"
+      ],
+      "label": "follow the dashboard's link to the agent editor tab that owns the cases"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--url",
+        "tab=evals"
+      ],
+      "label": "the agent editor's Evals tab is active in the URL"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--load",
+        "networkidle"
+      ],
+      "label": "case-list fetch settles"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Eval cases"
+      ],
+      "label": "the case list section renders"
+    },
+    {
+      "cmd": [
+        "wait",
+        "--text",
+        "Hardcoded Stripe secret key in commit"
+      ],
+      "label": "the newly created case is listed alongside the seeded set"
+    }
+  ]
+}

@@ -48,6 +48,8 @@ import { SmartDiffFileRoleSource } from '../modules/brief/adapters.js';
 import { classifyPath } from '../modules/smart-diff/classify.js';
 import type { ConventionsSkillsPort } from '../modules/conventions/ports.js';
 import { SkillsService } from '../modules/skills/service.js';
+import { EvalRepository } from '../modules/eval/repository.js';
+import { EvalRunner, type Logger as EvalRunnerLogger } from '../modules/eval/runner.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -101,8 +103,15 @@ export class Container {
   private _blastSource?: BlastSource;
   private _briefFileRoles?: FileRoleSource;
   private _conventionsSkills?: ConventionsSkillsPort;
+  private _evalRepo?: EvalRepository;
+  private _evalRunner?: EvalRunner;
 
-  constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
+  constructor(
+    config: AppConfig,
+    db: Db,
+    private overrides: ContainerOverrides = {},
+    private readonly logger?: EvalRunnerLogger,
+  ) {
     this.config = config;
     this.db = db;
     this.secrets = overrides.secrets ?? new LocalSecretsProvider(config.secretsPath);
@@ -209,6 +218,21 @@ export class Container {
 
   get conventionsSkills(): ConventionsSkillsPort {
     return (this._conventionsSkills ??= new SkillsService(this));
+  }
+
+  get evalRepo(): EvalRepository {
+    return (this._evalRepo ??= new EvalRepository(this.db));
+  }
+
+  get evalRunner(): EvalRunner {
+    return (this._evalRunner ??= new EvalRunner({
+      caseStore: this.evalRepo,
+      runStore: this.evalRepo,
+      suiteRunStore: this.evalRepo,
+      agentConfig: this.evalRepo,
+      llm: (provider) => this.llm(provider),
+      ...(this.logger ? { logger: this.logger } : {}),
+    }));
   }
 
   async github(): Promise<GitHubClient> {
