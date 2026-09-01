@@ -371,11 +371,9 @@
     {
       "cmd": [
         "find",
-        "role",
-        "link",
-        "click",
-        "--name",
-        "Configure eval cases \u2192"
+        "testid",
+        "eval-configure-cases",
+        "click"
       ],
       "label": "follow the dashboard's link to the agent editor tab that owns the cases"
     },

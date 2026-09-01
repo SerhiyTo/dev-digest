@@ -44,7 +44,11 @@ export function EvalDashboardHeader({
         </div>
         <div style={s.subtitleRow}>
           <p style={s.subtitle}>{t("subtitle", { runs: runCount, cases: caseCount })}</p>
-          <Link href={`/agents/${agent.id}?tab=evals`} style={s.casesLink}>
+          <Link
+            href={`/agents/${agent.id}?tab=evals`}
+            style={s.casesLink}
+            data-testid="eval-configure-cases"
+          >
             {tDashboard("configure")}
           </Link>
         </div>

@@ -31,6 +31,19 @@ note. Entry format: `- YYYY-MM-DD: <insight> (evidence: path/file.ts:line)`.
 
 ## What Doesn't Work
 <!-- Failed approaches, dead ends, antipatterns to avoid -->
+- 2026-09-01: `find role link` is the ONE locator that does not survive CI.
+  Flow 11 was the only flow in the suite using it, and it is the only flow that
+  failed; BOTH of its `find role link click` steps failed there with
+  `Element not found` while `find role button`, `find role checkbox` and
+  `find text` pass across all 11 flows, and while the accessibility tree dumped
+  immediately before the click shows the link with exactly that role and name.
+  Switching each to `find testid` moved the flow forward step by step — the
+  first switch carried it from the dashboard all the way through the compare
+  modal to the last remaining role-link step, which then failed the same way.
+  Give a link an explicit `data-testid` and select on that (evidence:
+  e2e/specs/11-evals.flow.json; GitHub runs 33452333702 and 33453507349;
+  client/src/app/evals/_components/EvalAgentRow/EvalAgentRow.tsx;
+  client/src/app/evals/[agentId]/_components/EvalDashboardHeader/EvalDashboardHeader.tsx)
 - 2026-09-01: `find role <role> --name` can fail with `Element not found` on CI
   for an element the accessibility tree shows AT THAT MOMENT with exactly that
   role and name. Flow 11's agent link was captured by a `snapshot` step inserted
