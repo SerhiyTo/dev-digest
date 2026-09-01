@@ -370,6 +370,16 @@
     },
     {
       "cmd": [
+        "eval",
+        "(()=>{const el=document.querySelector('[data-testid=\"eval-configure-cases\"]');if(!el)return 'MISSING';el.scrollIntoView({block:'center'});return 'centred'})()"
+      ],
+      "label": "centre the configure link before clicking it",
+      "assert": {
+        "stdoutIncludes": "centred"
+      }
+    },
+    {
+      "cmd": [
         "find",
         "testid",
         "eval-configure-cases",
